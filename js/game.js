@@ -82,6 +82,7 @@ const NOTES = [
 
 const audio = createAudio();
 const keys = new Set();
+const stick = { active: false, id: null, ox: 0, oy: 0, dx: 0, dy: 0 };
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -106,6 +107,14 @@ const ui = {
   choices: document.getElementById("choices"),
   deadStats: document.getElementById("dead-stats"),
   deadBest: document.getElementById("dead-best"),
+  hint: document.getElementById("hint"),
+  pauseBtn: document.getElementById("btn-pause"),
+  stick: document.getElementById("stick"),
+  knob: document.getElementById("stick-knob"),
+  muteBtn: document.getElementById("btn-mute"),
+  titleFine: document.getElementById("title-fine"),
+  selectFine: document.getElementById("select-fine"),
+  levelFine: document.getElementById("level-fine"),
 };
 
 const G = {
@@ -134,8 +143,9 @@ const G = {
 
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  W = Math.max(1, window.innerWidth || document.documentElement.clientWidth || 1280);
-  H = Math.max(1, window.innerHeight || document.documentElement.clientHeight || 800);
+  const vv = window.visualViewport;
+  W = Math.max(1, (vv && vv.width) || window.innerWidth || document.documentElement.clientWidth || 1280);
+  H = Math.max(1, (vv && vv.height) || window.innerHeight || document.documentElement.clientHeight || 800);
   const bw = Math.floor(W * dpr);
   const bh = Math.floor(H * dpr);
   if (canvas.width !== bw || canvas.height !== bh) {
@@ -154,13 +164,33 @@ function hide(el) {
   el.classList.add("hidden");
 }
 
+function isCoarse() {
+  return window.matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
+}
+
+function refreshChrome() {
+  document.body.classList.toggle("coarse", isCoarse());
+  if (ui.muteBtn) ui.muteBtn.textContent = audio.muted ? "Unmute" : "Mute";
+}
+
+function endStick() {
+  stick.active = false;
+  stick.id = null;
+  stick.dx = 0;
+  stick.dy = 0;
+  if (ui.knob) ui.knob.style.transform = "";
+  hide(ui.stick);
+}
+
 function setMode(mode) {
   G.mode = mode;
+  if (mode !== "play") endStick();
   hide(ui.title);
   hide(ui.select);
   hide(ui.levelup);
   hide(ui.pause);
   hide(ui.dead);
+  hide(ui.pauseBtn);
   if (mode === "title") {
     hide(ui.hud);
     show(ui.title);
@@ -169,12 +199,14 @@ function setMode(mode) {
     show(ui.select);
   } else if (mode === "play") {
     show(ui.hud);
+    show(ui.pauseBtn);
   } else if (mode === "levelup") {
     show(ui.hud);
     show(ui.levelup);
   } else if (mode === "pause") {
     show(ui.hud);
     show(ui.pause);
+    if (ui.muteBtn) ui.muteBtn.textContent = audio.muted ? "Unmute" : "Mute";
   } else if (mode === "dead") {
     show(ui.hud);
     show(ui.dead);
@@ -606,13 +638,19 @@ function updatePlayer(dt) {
   if (keys.has("KeyS") || keys.has("ArrowDown")) ay += 1;
   if (keys.has("KeyA") || keys.has("ArrowLeft")) ax -= 1;
   if (keys.has("KeyD") || keys.has("ArrowRight")) ax += 1;
+  const usingKeys = ax !== 0 || ay !== 0;
+  if (stick.active) {
+    ax += stick.dx;
+    ay += stick.dy;
+  }
   const mag = len(ax, ay);
   p.moving = mag > 0.01;
   if (p.moving) {
-    ax /= mag;
-    ay /= mag;
-    p.facing = Math.atan2(ay, ax);
-    moveWithWalls(p, ax * p.speed * dt, ay * p.speed * dt);
+    const nx = ax / mag;
+    const ny = ay / mag;
+    const speed = usingKeys ? p.speed : p.speed * Math.min(1, mag);
+    p.facing = Math.atan2(ny, nx);
+    moveWithWalls(p, nx * speed * dt, ny * speed * dt);
   }
   if (p.iframes > 0) p.iframes -= dt;
   if (p.regen > 0 && p.hp > 0) p.hp = Math.min(p.maxHp, p.hp + p.regen * dt);
@@ -830,7 +868,7 @@ function updateHud() {
   const p = G.player;
   ui.floor.textContent = `Floor ${G.floor}`;
   ui.timer.textContent = fmtTime(G.t);
-  ui.kills.textContent = `${G.kills} slain`;
+  ui.kills.textContent = W < 640 ? `${G.kills}` : `${G.kills} slain`;
   ui.xp.style.width = `${(p.xp / p.xpNeed) * 100}%`;
   const ratio = p.hp / p.maxHp;
   ui.hpfill.style.width = `${Math.max(0, ratio) * 100}%`;
@@ -1103,10 +1141,11 @@ function drawLight() {
 
 function drawMinimap() {
   const map = G.map;
-  const size = 148;
-  const pad = 16;
+  const compact = W < 700 || H < 500;
+  const size = compact ? 88 : 148;
+  const pad = 10;
   const ox = W - size - pad;
-  const oy = H - size - 48;
+  const oy = compact ? (W < 600 ? 86 : H - size - 16) : H - size - 48;
   ctx.fillStyle = "rgba(10,8,6,0.72)";
   ctx.fillRect(ox - 6, oy - 6, size + 12, size + 12);
   const sx = size / map.width;
@@ -1245,9 +1284,60 @@ function onKey(e, down) {
   if (G.mode === "play" && e.code === "Escape") setMode("pause");
 }
 
+function onPointerDown(e) {
+  audio.unlock();
+  if (G.mode !== "play") return;
+  if (e.pointerType === "mouse") return;
+  if (e.target.closest("button")) return;
+  if (stick.active) return;
+  stick.active = true;
+  stick.id = e.pointerId;
+  stick.ox = e.clientX;
+  stick.oy = e.clientY;
+  stick.dx = 0;
+  stick.dy = 0;
+  ui.stick.style.left = `${stick.ox}px`;
+  ui.stick.style.top = `${stick.oy}px`;
+  ui.knob.style.transform = "";
+  show(ui.stick);
+  try {
+    e.target.setPointerCapture(e.pointerId);
+  } catch {
+    /* some targets cannot capture */
+  }
+  e.preventDefault();
+}
+
+function onPointerMove(e) {
+  if (!stick.active || e.pointerId !== stick.id) return;
+  const max = 56;
+  let dx = e.clientX - stick.ox;
+  let dy = e.clientY - stick.oy;
+  const m = Math.hypot(dx, dy);
+  if (m > max) {
+    dx = (dx / m) * max;
+    dy = (dy / m) * max;
+  }
+  stick.dx = Math.abs(dx / max) < 0.12 ? 0 : dx / max;
+  stick.dy = Math.abs(dy / max) < 0.12 ? 0 : dy / max;
+  ui.knob.style.transform = `translate(${dx}px, ${dy}px)`;
+  e.preventDefault();
+}
+
+function onPointerUp(e) {
+  if (!stick.active || e.pointerId !== stick.id) return;
+  endStick();
+}
+
 window.addEventListener("keydown", (e) => onKey(e, true), { passive: false });
 window.addEventListener("keyup", (e) => onKey(e, false));
 window.addEventListener("resize", resize);
+window.visualViewport?.addEventListener("resize", resize);
+window.addEventListener("pointerdown", onPointerDown, { passive: false });
+window.addEventListener("pointermove", onPointerMove, { passive: false });
+window.addEventListener("pointerup", onPointerUp);
+window.addEventListener("pointercancel", onPointerUp);
+window.addEventListener("contextmenu", (e) => e.preventDefault());
 
 document.getElementById("btn-descend").addEventListener("click", () => {
   audio.unlock();
@@ -1269,7 +1359,19 @@ document.getElementById("btn-resume").addEventListener("click", () => setMode("p
 document.getElementById("btn-title").addEventListener("click", () => setMode("title"));
 document.getElementById("btn-retry").addEventListener("click", () => startRun(G.classId));
 document.getElementById("btn-dead-title").addEventListener("click", () => setMode("title"));
+ui.pauseBtn.addEventListener("click", () => {
+  audio.unlock();
+  if (G.mode === "play") setMode("pause");
+});
+ui.muteBtn.addEventListener("click", () => {
+  audio.unlock();
+  const muted = audio.toggleMute();
+  ui.muteBtn.textContent = muted ? "Unmute" : "Mute";
+  log(muted ? "The dark goes quiet." : "The dark hums again.");
+});
 
+refreshChrome();
+window.matchMedia("(pointer: coarse)").addEventListener("change", refreshChrome);
 resize();
 const boot = location.hash.slice(1);
 if (boot === "select") setMode("select");

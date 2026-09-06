@@ -8,18 +8,21 @@ A real-time dungeon horde. Same bones as the old turn-based crawler — BSP hall
 
 ```bash
 cd dungeon-horde
-python3 -m http.server 8765 --bind 127.0.0.1
+python3 -m http.server 8765 --bind 0.0.0.0
 ```
 
-Open [http://localhost:8765](http://localhost:8765).
+Open [http://localhost:8765](http://localhost:8765). On a phone, use this machine's LAN address, e.g. `http://192.168.x.x:8765`.
 
 | | |
 |---|---|
 | WASD / arrows | Move |
+| Drag (phone) | Move — a stick appears under your thumb |
 | 1 / 2 / 3 | Pick a class or an upgrade |
-| Esc | Pause |
+| Esc / Pause | Pause |
 | M | Mute |
 | Enter | Descend / retry |
+
+Phones and tablets: open the same URL, tap Descend, pick a champion, drag anywhere to walk. Attacks still fire themselves. Add to Home Screen if you want it fullscreen.
 
 You do not aim. Knives, a circling blade, or homing motes fire on their own. Kill enough and the lantern steadies — pick a gift. Stairs in the far room go deeper. Deeper is worse.
 

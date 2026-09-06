@@ -6,12 +6,16 @@ A real-time dungeon horde. Same bones as the old turn-based crawler — BSP hall
 
 ## Play
 
+Live: [https://tabyen.github.io/dungeon-horde/](https://tabyen.github.io/dungeon-horde/).
+
+To run locally:
+
 ```bash
 cd dungeon-horde
 python3 -m http.server 8765 --bind 0.0.0.0
 ```
 
-Open [http://localhost:8765](http://localhost:8765). On a phone, use this machine's LAN address, e.g. `http://192.168.x.x:8765`.
+Open [http://localhost:8765](http://localhost:8765).
 
 | | |
 |---|---|

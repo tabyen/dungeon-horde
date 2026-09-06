@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Crawler — There is a room at the bottom</title>
+    <meta name="description" content="A real-time dungeon horde crawler. Move. Survive. Descend." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect fill='%23140f0c' width='64' height='64'/%3E%3Crect x='26' y='14' width='12' height='22' rx='2' fill='%23c9a35a'/%3E%3Ccircle cx='32' cy='44' r='10' fill='%23e8c36a'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <canvas id="c" aria-label="Dungeon"></canvas>
+
+    <div id="hud" class="hidden">
+      <div id="top">
+        <span id="floor">Floor 1</span>
+        <span id="timer">0:00</span>
+        <span id="kills">0 slain</span>
+      </div>
+      <div id="xpwrap" title="Experience">
+        <div id="xp"></div>
+      </div>
+      <div id="hpwrap">
+        <div id="hpbar"><div id="hpfill"></div></div>
+        <span id="hptext">0 / 0</span>
+      </div>
+      <div id="log"></div>
+      <div id="hint">WASD to move · attacks fire themselves · Esc pauses · M mutes</div>
+    </div>
+
+    <div id="title" class="overlay">
+      <div class="veil"></div>
+      <div class="panel title-panel">
+        <p class="eyebrow">A dungeon crawler</p>
+        <h1>Crawler</h1>
+        <p class="tagline">There is a room at the bottom.</p>
+        <button id="btn-descend" class="btn" type="button">Descend</button>
+        <p class="fine">WASD to move. Your weapon works without you.</p>
+      </div>
+    </div>
+
+    <div id="select" class="overlay hidden">
+      <div class="veil dark"></div>
+      <div class="select-wrap">
+        <p class="eyebrow">Choose your champion</p>
+        <h2>Who goes below?</h2>
+        <div class="cards">
+          <button class="card" type="button" data-class="rogue">
+            <img src="assets/rogue.jpg" alt="Rogue" />
+            <div class="card-body">
+              <h3>Rogue</h3>
+              <p class="tag">Swift and deadly.</p>
+              <p>High agility, thin armour. Knives find the nearest throat.</p>
+            </div>
+          </button>
+          <button class="card" type="button" data-class="warrior">
+            <img src="assets/warrior.jpg" alt="Warrior" />
+            <div class="card-body">
+              <h3>Warrior</h3>
+              <p class="tag">Strong and resilient.</p>
+              <p>High HP. A circling blade that never rests.</p>
+            </div>
+          </button>
+          <button class="card" type="button" data-class="wizard">
+            <img src="assets/wizard.jpg" alt="Wizard" />
+            <div class="card-body">
+              <h3>Wizard</h3>
+              <p class="tag">Fragile but powerful.</p>
+              <p>Homing motes of sickly light. Stay at the edge of the dark.</p>
+            </div>
+          </button>
+        </div>
+        <p class="fine">Press 1, 2, or 3 — or click a card.</p>
+      </div>
+    </div>
+
+    <div id="levelup" class="overlay hidden">
+      <div class="veil"></div>
+      <div class="panel">
+        <p class="eyebrow">The lantern steadies</p>
+        <h2>Choose a gift</h2>
+        <div id="choices" class="choices"></div>
+        <p class="fine">Press 1, 2, or 3</p>
+      </div>
+    </div>
+
+    <div id="pause" class="overlay hidden">
+      <div class="veil"></div>
+      <div class="panel">
+        <h2>Held breath</h2>
+        <p class="tagline">The dark waits.</p>
+        <div class="row">
+          <button id="btn-resume" class="btn" type="button">Resume</button>
+          <button id="btn-title" class="btn ghost" type="button">Abandon</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="dead" class="overlay hidden">
+      <div class="veil"></div>
+      <div class="panel">
+        <p class="eyebrow">The walls remember names</p>
+        <h2>You have died.</h2>
+        <p id="dead-stats" class="tagline"></p>
+        <p id="dead-best" class="fine"></p>
+        <div class="row">
+          <button id="btn-retry" class="btn" type="button">Descend again</button>
+          <button id="btn-dead-title" class="btn ghost" type="button">Title</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="note" class="note hidden"></div>
+
+    <script type="module" src="js/game.js"></script>
+  </body>
+</html>

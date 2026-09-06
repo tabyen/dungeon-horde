@@ -1,0 +1,11 @@
+{
+  "name": "dungeon-horde",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Crawler — a real-time dungeon horde. There is a room at the bottom.",
+  "scripts": {
+    "start": "python3 -m http.server 8765 --bind 127.0.0.1",
+    "test": "node --test test/map.test.mjs"
+  },
+  "type": "module"
+}

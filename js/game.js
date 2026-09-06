@@ -126,7 +126,7 @@ const UPGRADES = [
   { id: "magnet", name: "Greedy", desc: "Light pulls the remnants closer." },
   { id: "pierce", name: "Through", desc: "Projectiles pass through one more body." },
   { id: "multi", name: "Another", desc: "One more knife, blade, or mote." },
-  { id: "area", name: "Reach", desc: "Attacks travel farther. Orbits widen." },
+  { id: "area", name: "Reach", desc: "Attacks travel farther. Blades grow longer." },
   { id: "regen", name: "Slow Close", desc: "Wounds remember how to shut. +1 HP/s." },
   { id: "armor", name: "Hide", desc: "The dark takes a smaller bite. +15% resist." },
   { id: "light", name: "Brighter Lantern", desc: "See farther. The light itself stings." },
@@ -326,6 +326,17 @@ function dist2(a, b) {
 
 function len(x, y) {
   return Math.hypot(x, y) || 1;
+}
+
+function distToSegment(px, py, x1, y1, x2, y2) {
+  const vx = x2 - x1;
+  const vy = y2 - y1;
+  const len2 = vx * vx + vy * vy;
+  if (len2 < 1e-6) return Math.hypot(px - x1, py - y1);
+  let t = ((px - x1) * vx + (py - y1) * vy) / len2;
+  if (t < 0) t = 0;
+  else if (t > 1) t = 1;
+  return Math.hypot(px - (x1 + t * vx), py - (y1 + t * vy));
 }
 
 function startRun(classId, difficulty) {
@@ -633,14 +644,20 @@ function fireWeapons(dt) {
   if (p.weapon === "orbit") {
     p.orbitAngle += dt * (2.4 * p.atkSpd);
     const count = p.projectiles;
+    const inner = Math.max(4, p.r * 0.35);
     const radius = 42 * p.area;
+    const thick = 10;
     const dmg = p.damage * p.dmgMul;
     for (let i = 0; i < count; i++) {
       const a = p.orbitAngle + (TAU * i) / count;
-      const bx = p.x + Math.cos(a) * radius;
-      const by = p.y + Math.sin(a) * radius;
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+      const x1 = p.x + ca * inner;
+      const y1 = p.y + sa * inner;
+      const x2 = p.x + ca * radius;
+      const y2 = p.y + sa * radius;
       for (const e of G.enemies) {
-        if (Math.hypot(e.x - bx, e.y - by) < e.r + 8) {
+        if (distToSegment(e.x, e.y, x1, y1, x2, y2) < e.r + thick) {
           const last = p.orbitHits.get(e.id) || 0;
           if (G.t - last > 0.28 / p.atkSpd) {
             p.orbitHits.set(e.id, G.t);
@@ -1206,18 +1223,17 @@ function drawPlayer() {
 
   if (p.weapon === "orbit") {
     const count = p.projectiles;
+    const inner = Math.max(4, p.r * 0.35);
     const radius = 42 * p.area;
     for (let i = 0; i < count; i++) {
       const a = p.orbitAngle + (TAU * i) / count;
-      const bx = x + Math.cos(a) * radius;
-      const by = y + Math.sin(a) * radius;
       ctx.save();
-      ctx.translate(bx, by);
-      ctx.rotate(a + 0.4);
+      ctx.translate(x, y);
+      ctx.rotate(a);
       ctx.fillStyle = p.accent;
-      ctx.fillRect(-8, -2, 16, 4);
+      ctx.fillRect(inner, -2.5, radius - inner, 5);
       ctx.fillStyle = "#e8e0d0";
-      ctx.fillRect(4, -2, 6, 4);
+      ctx.fillRect(radius - 9, -3.5, 11, 7);
       ctx.restore();
     }
   }

@@ -1,4 +1,4 @@
-import { TILE, TILE_WALL, TILE_STAIRS, generateDungeon } from "./map.js";
+import { TILE, TILE_WALL, TILE_STAIRS, generateDungeon, buildFlowField } from "./map.js";
 import { createAudio } from "./audio.js";
 
 const TAU = Math.PI * 2;
@@ -208,6 +208,8 @@ const G = {
   log: [],
   noteT: 0,
   usedNotes: [],
+  flow: null,
+  flowAt: -1,
 };
 
 function resize() {
@@ -397,6 +399,8 @@ function buildFloor(first) {
   G.floaters = [];
   G.pickups = [];
   const d = D();
+  G.flow = null;
+  G.flowAt = -1;
   G.spawnCredit = first ? 0.25 * d.spawn : 1.2 * d.spawn;
   placePickups();
   const n = first ? d.startEnemies : d.startEnemies + 1;
@@ -710,14 +714,50 @@ function moveWithWalls(ent, dx, dy) {
   if (!G.map.circleHitsWall(nx, ny, ent.r)) {
     ent.x = nx;
     ent.y = ny;
-    return;
+    return Math.hypot(dx, dy);
   }
   if (!G.map.circleHitsWall(nx, ent.y, ent.r)) {
     ent.x = nx;
-    return;
+    return Math.abs(dx);
   }
   if (!G.map.circleHitsWall(ent.x, ny, ent.r)) {
     ent.y = ny;
+    return Math.abs(dy);
+  }
+  return 0;
+}
+
+function refreshFlow() {
+  if (!G.map || !G.player) return;
+  const tx = Math.floor(G.player.x / TILE);
+  const ty = Math.floor(G.player.y / TILE);
+  G.flow = buildFlowField(G.map, tx, ty);
+  G.flowAt = G.t;
+}
+
+function steerEnemy(e, p) {
+  const flow = G.flow;
+  if (flow) {
+    const tx = Math.max(0, Math.min(flow.w - 1, Math.floor(e.x / TILE)));
+    const ty = Math.max(0, Math.min(flow.h - 1, Math.floor(e.y / TILE)));
+    const i = ty * flow.w + tx;
+    if (flow.dist[i] > 0 && flow.dist[i] < 32767) {
+      const ntx = tx + flow.dx[i];
+      const nty = ty + flow.dy[i];
+      return [G.map.worldX(ntx) - e.x, G.map.worldY(nty) - e.y];
+    }
+  }
+  return [p.x - e.x, p.y - e.y];
+}
+
+function unstick(e) {
+  if (!G.map.circleHitsWall(e.x, e.y, e.r)) return;
+  const cx = (Math.floor(e.x / TILE) + 0.5) * TILE;
+  const cy = (Math.floor(e.y / TILE) + 0.5) * TILE;
+  moveWithWalls(e, (cx - e.x) * 0.6, (cy - e.y) * 0.6);
+  if (G.map.circleHitsWall(e.x, e.y, e.r) && G.map.isWalkable(Math.floor(cx / TILE), Math.floor(cy / TILE))) {
+    e.x = cx;
+    e.y = cy;
   }
 }
 
@@ -771,17 +811,27 @@ function updateEnemies(dt) {
     const e = G.enemies[i];
     const dx = p.x - e.x;
     const dy = p.y - e.y;
-    const d = Math.hypot(dx, dy) || 1;
+    const dist = Math.hypot(dx, dy) || 1;
     if (e.kind === "watcher" && !e.charged) {
-      if (d < 170) e.charged = true;
+      if (dist < 170) e.charged = true;
       else continue;
     }
     const speed = e.speed * (e.kind === "watcher" ? 1.05 : 1) * Math.min(timeMul, 1.8);
-    moveWithWalls(e, (dx / d) * speed * dt, (dy / d) * speed * dt);
+    const step = speed * dt;
+    const [sx, sy] = steerEnemy(e, p);
+    const sm = Math.hypot(sx, sy) || 1;
+    const moved = moveWithWalls(e, (sx / sm) * step, (sy / sm) * step);
+    if (moved < step * 0.2) {
+      const px = -sy / sm;
+      const py = sx / sm;
+      if (moveWithWalls(e, px * step, py * step) < step * 0.2) {
+        moveWithWalls(e, -px * step, -py * step);
+      }
+    }
 
     if (e.hitFlash > 0) e.hitFlash -= dt;
 
-    if (p.lightDmg > 0 && d < p.light * 0.28) {
+    if (p.lightDmg > 0 && dist < p.light * 0.28) {
       e.hp -= p.lightDmg * dt;
       if (e.hp <= 0) {
         killEnemy(e);
@@ -789,7 +839,7 @@ function updateEnemies(dt) {
       }
     }
 
-    if (d < e.r + p.r - 1 && p.iframes <= 0 && G.mode === "play") {
+    if (dist < e.r + p.r - 1 && p.iframes <= 0 && G.mode === "play") {
       const dmg = e.damage * (1 - p.armor);
       p.hp -= dmg;
       p.iframes = D().iframes;
@@ -797,7 +847,7 @@ function updateEnemies(dt) {
       audio.hurt();
       spawnBurst(p.x, p.y, "#c44a3a", 8, 90);
       const kb = 90;
-      moveWithWalls(p, (-dx / d) * kb * dt * 8, (-dy / d) * kb * dt * 8);
+      moveWithWalls(p, (-dx / dist) * kb * dt * 8, (-dy / dist) * kb * dt * 8);
       if (p.hp <= 0) {
         p.hp = 0;
         die();
@@ -827,6 +877,7 @@ function updateEnemies(dt) {
       }
     }
   }
+  for (let i = 0; i < G.enemies.length; i++) unstick(G.enemies[i]);
 }
 
 function updateBullets(dt) {
@@ -1313,6 +1364,7 @@ function update(dt) {
     return;
   }
   G.t += dt;
+  if (!G.flow || G.t - G.flowAt > 0.14) refreshFlow();
   updatePlayer(dt);
   fireWeapons(dt);
   updateEnemies(dt);

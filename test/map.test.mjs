@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { TILE, TILE_STAIRS, generateDungeon } from "../js/map.js";
+import { TILE, TILE_STAIRS, generateDungeon, buildFlowField } from "../js/map.js";
 
 test("dungeon has rooms, floors, and stairs", () => {
   const d = generateDungeon({ seed: 42 });
@@ -19,6 +19,43 @@ test("walls surround the map edge", () => {
   }
   const wall = d.circleHitsWall(TILE / 2, TILE / 2, 10);
   assert.equal(wall, true);
+});
+
+test("flow field routes around a wall instead of through it", () => {
+  const rows = [
+    "#######",
+    "#A#B..#",
+    "#.#...#",
+    "#.....#",
+    "#######",
+  ];
+  const height = rows.length;
+  const width = rows[0].length;
+  const map = {
+    width,
+    height,
+    isWalkable(x, y) {
+      if (x < 0 || y < 0 || x >= width || y >= height) return false;
+      return rows[y][x] !== "#";
+    },
+  };
+  const flow = buildFlowField(map, 3, 1);
+  const i = (x, y) => y * width + x;
+  assert.ok(flow.dist[i(1, 1)] < 32767, "A is reachable from B");
+  assert.equal(flow.dx[i(1, 1)], 0);
+  assert.equal(flow.dy[i(1, 1)], 1, "A should go down around the wall, not through it");
+
+  let x = 1;
+  let y = 1;
+  let guard = 0;
+  while ((x !== 3 || y !== 1) && guard++ < 40) {
+    const idx = i(x, y);
+    x += flow.dx[idx];
+    y += flow.dy[idx];
+    assert.equal(map.isWalkable(x, y), true);
+  }
+  assert.equal(x, 3);
+  assert.equal(y, 1);
 });
 
 test("seeded maps are deterministic", () => {

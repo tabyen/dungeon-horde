@@ -230,3 +230,71 @@ function tryGenerate({ width, height, seed }) {
     worldY: (ty) => (ty + 0.5) * TILE,
   };
 }
+
+const FLOW_INF = 32767;
+const STEPS = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+];
+
+export function buildFlowField(map, startX, startY) {
+  const w = map.width;
+  const h = map.height;
+  const n = w * h;
+  const dist = new Int16Array(n);
+  dist.fill(FLOW_INF);
+  const dx = new Int8Array(n);
+  const dy = new Int8Array(n);
+
+  let sx = startX | 0;
+  let sy = startY | 0;
+  if (!map.isWalkable(sx, sy)) {
+    outer: for (let r = 1; r <= 8; r++) {
+      for (let oy = -r; oy <= r; oy++) {
+        for (let ox = -r; ox <= r; ox++) {
+          if (map.isWalkable(sx + ox, sy + oy)) {
+            sx += ox;
+            sy += oy;
+            break outer;
+          }
+        }
+      }
+    }
+  }
+
+  const q = new Int32Array(n * 2);
+  let qh = 0;
+  let qt = 0;
+  if (map.isWalkable(sx, sy)) {
+    dist[sy * w + sx] = 0;
+    q[qt++] = sx;
+    q[qt++] = sy;
+  }
+
+  while (qh < qt) {
+    const x = q[qh++];
+    const y = q[qh++];
+    const i = y * w + x;
+    const d0 = dist[i];
+    for (let s = 0; s < STEPS.length; s++) {
+      const ox = STEPS[s][0];
+      const oy = STEPS[s][1];
+      const nx = x + ox;
+      const ny = y + oy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      if (!map.isWalkable(nx, ny)) continue;
+      const j = ny * w + nx;
+      const nd = d0 + 1;
+      if (nd >= dist[j]) continue;
+      dist[j] = nd;
+      dx[j] = -ox;
+      dy[j] = -oy;
+      q[qt++] = nx;
+      q[qt++] = ny;
+    }
+  }
+
+  return { dist, dx, dy, w, h, sx, sy };
+}

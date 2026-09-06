@@ -17,12 +17,16 @@ Open [http://localhost:8765](http://localhost:8765). On a phone, use this machin
 |---|---|
 | WASD / arrows | Move |
 | Drag (phone) | Move — a stick appears under your thumb |
-| 1 / 2 / 3 | Pick a class or an upgrade |
+| 1 / 2 / 3 | Pick a class, a difficulty, or an upgrade |
 | Esc / Pause | Pause |
 | M | Mute |
 | Enter | Descend / retry |
 
-Phones and tablets: open the same URL, tap Descend, pick a champion, drag anywhere to walk. Attacks still fire themselves. Add to Home Screen if you want it fullscreen.
+Phones and tablets: open the same URL, tap Descend, pick a champion, pick how dark, drag anywhere to walk. Attacks still fire themselves. Add to Home Screen if you want it fullscreen.
+
+## Difficulty
+
+After the champion: **Candle** (easy), **Lantern** (normal), **No Light** (hard). Spawn rate, enemy health and damage, your HP, and how soon elites arrive all change.
 
 You do not aim. Knives, a circling blade, or homing motes fire on their own. Kill enough and the lantern steadies — pick a gift. Stairs in the far room go deeper. Deeper is worse.
 

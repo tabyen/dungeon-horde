@@ -271,6 +271,7 @@ button {
 
 .select-wrap h2 {
   margin: 4px 0 28px;
+  padding: 0 12px;
 }
 
 .cards {
@@ -376,6 +377,31 @@ button {
   font-size: 14px;
 }
 
+.diff-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.diff-card {
+  min-height: 180px;
+}
+
+.diff-card .tag {
+  margin: 0 0 8px;
+  color: var(--gold);
+  font-style: italic;
+}
+
+.diff-card.recommended {
+  border-color: var(--gold);
+}
+
+.diff-card.last-pick {
+  box-shadow: 0 0 0 1px var(--gold), 0 16px 40px #0008;
+}
+
 .note {
   position: fixed;
   left: 50%;
@@ -453,7 +479,8 @@ body.coarse .copy-touch {
 
 @media (max-width: 900px), (pointer: coarse) {
   .cards,
-  .choices {
+  .choices,
+  .diff-cards {
     grid-template-columns: 1fr;
   }
 

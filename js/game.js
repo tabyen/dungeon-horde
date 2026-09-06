@@ -3,6 +3,73 @@ import { createAudio } from "./audio.js";
 
 const TAU = Math.PI * 2;
 const BEST_KEY = "crawler-best";
+const DIFF_KEY = "crawler-difficulty";
+
+const DIFFICULTIES = {
+  candle: {
+    id: "candle",
+    name: "Candle",
+    playerHp: 1.4,
+    playerDmg: 1.2,
+    enemyHp: 0.7,
+    enemyDmg: 0.6,
+    enemySpeed: 0.82,
+    spawn: 0.5,
+    ramp: 0.55,
+    eliteDelay: 1.7,
+    enemyCap: 70,
+    startEnemies: 1,
+    vialHeal: 28,
+    stairHeal: 0.35,
+    xpMul: 1.25,
+    extraRunner: 0.06,
+    extraRunnerAt: 95,
+    iframes: 0.9,
+    pickups: 7,
+  },
+  lantern: {
+    id: "lantern",
+    name: "Lantern",
+    playerHp: 1,
+    playerDmg: 1,
+    enemyHp: 1,
+    enemyDmg: 1,
+    enemySpeed: 1,
+    spawn: 1,
+    ramp: 1,
+    eliteDelay: 1,
+    enemyCap: 110,
+    startEnemies: 2,
+    vialHeal: 18,
+    stairHeal: 0.2,
+    xpMul: 1,
+    extraRunner: 0.15,
+    extraRunnerAt: 70,
+    iframes: 0.7,
+    pickups: 5,
+  },
+  black: {
+    id: "black",
+    name: "No Light",
+    playerHp: 0.85,
+    playerDmg: 0.92,
+    enemyHp: 1.4,
+    enemyDmg: 1.4,
+    enemySpeed: 1.18,
+    spawn: 1.5,
+    ramp: 1.45,
+    eliteDelay: 0.55,
+    enemyCap: 140,
+    startEnemies: 4,
+    vialHeal: 12,
+    stairHeal: 0.1,
+    xpMul: 0.85,
+    extraRunner: 0.28,
+    extraRunnerAt: 40,
+    iframes: 0.55,
+    pickups: 3,
+  },
+};
 
 const CLASSES = {
   rogue: {
@@ -93,6 +160,7 @@ const ui = {
   hud: document.getElementById("hud"),
   title: document.getElementById("title"),
   select: document.getElementById("select"),
+  difficulty: document.getElementById("difficulty"),
   levelup: document.getElementById("levelup"),
   pause: document.getElementById("pause"),
   dead: document.getElementById("dead"),
@@ -120,6 +188,7 @@ const ui = {
 const G = {
   mode: "title",
   classId: "rogue",
+  difficulty: "lantern",
   t: 0,
   floor: 1,
   kills: 0,
@@ -182,11 +251,23 @@ function endStick() {
   hide(ui.stick);
 }
 
+function D() {
+  return DIFFICULTIES[G.difficulty] || DIFFICULTIES.lantern;
+}
+
+function markLastDifficulty() {
+  const last = localStorage.getItem(DIFF_KEY) || "lantern";
+  document.querySelectorAll(".diff-card").forEach((btn) => {
+    btn.classList.toggle("last-pick", btn.dataset.diff === last);
+  });
+}
+
 function setMode(mode) {
   G.mode = mode;
   if (mode !== "play") endStick();
   hide(ui.title);
   hide(ui.select);
+  hide(ui.difficulty);
   hide(ui.levelup);
   hide(ui.pause);
   hide(ui.dead);
@@ -197,6 +278,10 @@ function setMode(mode) {
   } else if (mode === "select") {
     hide(ui.hud);
     show(ui.select);
+  } else if (mode === "difficulty") {
+    hide(ui.hud);
+    markLastDifficulty();
+    show(ui.difficulty);
   } else if (mode === "play") {
     show(ui.hud);
     show(ui.pauseBtn);
@@ -241,8 +326,10 @@ function len(x, y) {
   return Math.hypot(x, y) || 1;
 }
 
-function startRun(classId) {
+function startRun(classId, difficulty) {
   G.classId = classId;
+  G.difficulty = DIFFICULTIES[difficulty] ? difficulty : G.difficulty || "lantern";
+  localStorage.setItem(DIFF_KEY, G.difficulty);
   G.t = 0;
   G.floor = 1;
   G.kills = 0;
@@ -251,20 +338,22 @@ function startRun(classId) {
   G.log = [];
   ui.log.innerHTML = "";
   const spec = CLASSES[classId];
+  const d = D();
+  const hp = Math.round(spec.hp * d.playerHp);
   G.player = {
     classId,
     x: 0,
     y: 0,
     r: spec.r,
-    hp: spec.hp,
-    maxHp: spec.hp,
+    hp,
+    maxHp: hp,
     speed: spec.speed,
     color: spec.color,
     accent: spec.accent,
     weapon: spec.weapon,
     cooldown: spec.cooldown,
     cd: 0.15,
-    damage: spec.damage,
+    damage: spec.damage * d.playerDmg,
     dmgMul: 1,
     atkSpd: 1,
     projectiles: spec.projectiles,
@@ -287,7 +376,7 @@ function startRun(classId) {
   };
   buildFloor(true);
   setMode("play");
-  log("You descend into the dark.");
+  log(`${d.name}. You descend into the dark.`);
   audio.descend();
   resize();
   snapCamera();
@@ -307,16 +396,16 @@ function buildFloor(first) {
   G.particles = [];
   G.floaters = [];
   G.pickups = [];
-  G.spawnCredit = first ? 0.4 : 1.2;
+  const d = D();
+  G.spawnCredit = first ? 0.25 * d.spawn : 1.2 * d.spawn;
   placePickups();
-  spawnEnemy("crawler");
-  spawnEnemy("crawler");
-  if (!first) spawnEnemy("runner");
+  const n = first ? d.startEnemies : d.startEnemies + 1;
+  for (let i = 0; i < n; i++) spawnEnemy(i === 0 && !first ? "runner" : "crawler");
 }
 
 function placePickups() {
   const rooms = G.map.rooms.slice(1);
-  const count = Math.min(5, rooms.length);
+  const count = Math.min(D().pickups, rooms.length);
   for (let i = 0; i < count; i++) {
     const room = rooms[i];
     const tx = room.x + 1 + ((room.w - 2) * Math.random()) | 0;
@@ -348,7 +437,7 @@ function xpNeeded(level) {
 
 function gainXp(amount) {
   const p = G.player;
-  p.xp += amount;
+  p.xp += amount * D().xpMul;
   while (p.xp >= p.xpNeed) {
     p.xp -= p.xpNeed;
     p.level += 1;
@@ -447,15 +536,17 @@ function pickSpawnTile() {
 }
 
 function enemyKindForTime(t) {
+  const delay = D().eliteDelay;
   const roll = Math.random();
-  if (t > 95 && roll < 0.12) return "watcher";
-  if (t > 55 && roll < 0.22) return "brute";
-  if (t > 22 && roll < 0.42) return "runner";
+  if (t > 95 * delay && roll < 0.12) return "watcher";
+  if (t > 55 * delay && roll < 0.22) return "brute";
+  if (t > 22 * delay && roll < 0.42) return "runner";
   return "crawler";
 }
 
 function spawnEnemy(kind) {
-  if (G.enemies.length >= 110) return;
+  const d = D();
+  if (G.enemies.length >= d.enemyCap) return;
   const spec = ENEMY_KINDS[kind];
   const pos = pickSpawnTile();
   const floorMul = 1 + (G.floor - 1) * 0.16;
@@ -465,10 +556,10 @@ function spawnEnemy(kind) {
     x: pos.x,
     y: pos.y,
     r: spec.r,
-    hp: spec.hp * floorMul,
-    maxHp: spec.hp * floorMul,
-    speed: spec.speed,
-    damage: spec.damage,
+    hp: spec.hp * floorMul * d.enemyHp,
+    maxHp: spec.hp * floorMul * d.enemyHp,
+    speed: spec.speed * d.enemySpeed,
+    damage: spec.damage * d.enemyDmg,
     xp: spec.xp,
     color: spec.color,
     eyes: spec.eyes,
@@ -658,7 +749,7 @@ function updatePlayer(dt) {
   const stair = G.map.stairs;
   if (Math.hypot(p.x - G.map.worldX(stair.x), p.y - G.map.worldY(stair.y)) < 18) {
     G.floor += 1;
-    p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.2);
+    p.hp = Math.min(p.maxHp, p.hp + p.maxHp * D().stairHeal);
     log("A staircase. You go deeper.");
     audio.descend();
     buildFloor(false);
@@ -667,12 +758,13 @@ function updatePlayer(dt) {
 
 function updateEnemies(dt) {
   const p = G.player;
-  const timeMul = 1 + G.t * 0.012 + (G.floor - 1) * 0.18;
-  G.spawnCredit += dt * (0.9 + G.t * 0.035 + (G.floor - 1) * 0.25);
+  const d = D();
+  const timeMul = 1 + (G.t * 0.012 + (G.floor - 1) * 0.18) * d.ramp;
+  G.spawnCredit += dt * (0.9 + G.t * 0.035 + (G.floor - 1) * 0.25) * d.spawn;
   while (G.spawnCredit >= 1) {
     G.spawnCredit -= 1;
     spawnEnemy(enemyKindForTime(G.t));
-    if (G.t > 70 && Math.random() < 0.15) spawnEnemy("runner");
+    if (G.t > d.extraRunnerAt && Math.random() < d.extraRunner) spawnEnemy("runner");
   }
 
   for (let i = 0; i < G.enemies.length; i++) {
@@ -700,7 +792,7 @@ function updateEnemies(dt) {
     if (d < e.r + p.r - 1 && p.iframes <= 0 && G.mode === "play") {
       const dmg = e.damage * (1 - p.armor);
       p.hp -= dmg;
-      p.iframes = 0.7;
+      p.iframes = D().iframes;
       G.shake = 8;
       audio.hurt();
       spawnBurst(p.x, p.y, "#c44a3a", 8, 90);
@@ -804,7 +896,7 @@ function updatePickups() {
     G.pickups.splice(i, 1);
     audio.pickup();
     if (u.kind === "health") {
-      p.hp = Math.min(p.maxHp, p.hp + 18);
+      p.hp = Math.min(p.maxHp, p.hp + D().vialHeal);
       log("A vial. The wound remembers less.");
     } else if (u.kind === "fuel") {
       p.light += 40;
@@ -848,13 +940,17 @@ function die() {
     kills: G.kills,
     floor: G.floor,
     classId: G.classId,
+    difficulty: G.difficulty,
     level: G.player.level,
   };
   const prev = JSON.parse(localStorage.getItem(BEST_KEY) || "null");
   if (!prev || rec.time > prev.time) localStorage.setItem(BEST_KEY, JSON.stringify(rec));
-  ui.deadStats.textContent = `${CLASSES[G.classId].name} · ${fmtTime(G.t)} · ${G.kills} slain · floor ${G.floor} · lantern ${G.player.level}`;
+  ui.deadStats.textContent = `${CLASSES[G.classId].name} · ${D().name} · ${fmtTime(G.t)} · ${G.kills} slain · floor ${G.floor} · lantern ${G.player.level}`;
   const best = JSON.parse(localStorage.getItem(BEST_KEY) || "null");
-  ui.deadBest.textContent = best ? `Longest lantern: ${fmtTime(best.time)} (${CLASSES[best.classId].name}, ${best.kills} slain)` : "";
+  const bestDiff = best && DIFFICULTIES[best.difficulty] ? DIFFICULTIES[best.difficulty].name : "";
+  ui.deadBest.textContent = best
+    ? `Longest lantern: ${fmtTime(best.time)} (${CLASSES[best.classId].name}${bestDiff ? ", " + bestDiff : ""}, ${best.kills} slain)`
+    : "";
   setMode("dead");
 }
 
@@ -866,7 +962,7 @@ function fmtTime(t) {
 
 function updateHud() {
   const p = G.player;
-  ui.floor.textContent = `Floor ${G.floor}`;
+  ui.floor.textContent = W < 600 ? `F${G.floor}` : `Floor ${G.floor} · ${D().name}`;
   ui.timer.textContent = fmtTime(G.t);
   ui.kills.textContent = W < 640 ? `${G.kills}` : `${G.kills} slain`;
   ui.xp.style.width = `${(p.xp / p.xpNeed) * 100}%`;
@@ -1262,9 +1358,17 @@ function onKey(e, down) {
     return;
   }
   if (G.mode === "select") {
-    if (e.code === "Digit1") startRun("rogue");
-    if (e.code === "Digit2") startRun("warrior");
-    if (e.code === "Digit3") startRun("wizard");
+    if (e.code === "Digit1") pickClass("rogue");
+    if (e.code === "Digit2") pickClass("warrior");
+    if (e.code === "Digit3") pickClass("wizard");
+    if (e.code === "Escape") setMode("title");
+    return;
+  }
+  if (G.mode === "difficulty") {
+    if (e.code === "Digit1") startRun(G.classId, "candle");
+    if (e.code === "Digit2") startRun(G.classId, "lantern");
+    if (e.code === "Digit3") startRun(G.classId, "black");
+    if (e.code === "Escape") setMode("select");
     return;
   }
   if (G.mode === "levelup") {
@@ -1277,7 +1381,7 @@ function onKey(e, down) {
     return;
   }
   if (G.mode === "dead") {
-    if (e.code === "Enter") startRun(G.classId);
+    if (e.code === "Enter") startRun(G.classId, G.difficulty);
     if (e.code === "Escape") setMode("title");
     return;
   }
@@ -1343,10 +1447,21 @@ document.getElementById("btn-descend").addEventListener("click", () => {
   audio.unlock();
   setMode("select");
 });
+function pickClass(classId) {
+  G.classId = classId;
+  setMode("difficulty");
+}
+
 document.querySelectorAll(".card").forEach((btn) => {
   btn.addEventListener("click", () => {
     audio.unlock();
-    startRun(btn.dataset.class);
+    pickClass(btn.dataset.class);
+  });
+});
+document.querySelectorAll(".diff-card").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    audio.unlock();
+    startRun(G.classId, btn.dataset.diff);
   });
 });
 ui.choices.addEventListener("click", (e) => {
@@ -1357,7 +1472,7 @@ ui.choices.addEventListener("click", (e) => {
 });
 document.getElementById("btn-resume").addEventListener("click", () => setMode("play"));
 document.getElementById("btn-title").addEventListener("click", () => setMode("title"));
-document.getElementById("btn-retry").addEventListener("click", () => startRun(G.classId));
+document.getElementById("btn-retry").addEventListener("click", () => startRun(G.classId, G.difficulty));
 document.getElementById("btn-dead-title").addEventListener("click", () => setMode("title"));
 ui.pauseBtn.addEventListener("click", () => {
   audio.unlock();
@@ -1375,8 +1490,12 @@ window.matchMedia("(pointer: coarse)").addEventListener("change", refreshChrome)
 resize();
 const boot = location.hash.slice(1);
 if (boot === "select") setMode("select");
+if (boot === "difficulty") setMode("difficulty");
 if (boot.startsWith("play")) {
-  const id = boot.split("/")[1] || "rogue";
-  startRun(CLASSES[id] ? id : "rogue");
+  const parts = boot.split("/");
+  const id = parts[1] || "rogue";
+  const diff = parts[2] || localStorage.getItem(DIFF_KEY) || "lantern";
+  G.difficulty = DIFFICULTIES[diff] ? diff : "lantern";
+  startRun(CLASSES[id] ? id : "rogue", G.difficulty);
 }
 requestAnimationFrame(loop);

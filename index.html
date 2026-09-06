@@ -96,6 +96,38 @@
       </div>
     </div>
 
+    <div id="difficulty" class="overlay hidden">
+      <div class="veil dark"></div>
+      <div class="select-wrap">
+        <p class="eyebrow">How dark?</p>
+        <h2>Pick a light</h2>
+        <div class="diff-cards">
+          <button class="choice diff-card" type="button" data-diff="candle">
+            <span class="key">1</span>
+            <h3>Candle</h3>
+            <p class="tag">The dark is slow.</p>
+            <p>Fewer creatures, softer blows, a little more blood in you.</p>
+          </button>
+          <button class="choice diff-card recommended" type="button" data-diff="lantern">
+            <span class="key">2</span>
+            <h3>Lantern</h3>
+            <p class="tag">As it is below.</p>
+            <p>The usual press of bodies. Recommended.</p>
+          </button>
+          <button class="choice diff-card" type="button" data-diff="black">
+            <span class="key">3</span>
+            <h3>No Light</h3>
+            <p class="tag">It follows sound.</p>
+            <p>They come faster, hit harder, and die slower.</p>
+          </button>
+        </div>
+        <p class="fine" id="diff-fine">
+          <span class="copy-desk">Press 1, 2, or 3 — Esc goes back.</span>
+          <span class="copy-touch">Tap how dark. Then you go below.</span>
+        </p>
+      </div>
+    </div>
+
     <div id="levelup" class="overlay hidden">
       <div class="veil"></div>
       <div class="panel">

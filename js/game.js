@@ -6,9 +6,9 @@ const BEST_KEY = "crawler-best";
 const DIFF_KEY = "crawler-difficulty";
 
 const DIFFICULTIES = {
-  candle: {
-    id: "candle",
-    name: "Candle",
+  lantern: {
+    id: "lantern",
+    name: "Lantern",
     playerHp: 1.4,
     playerDmg: 1.2,
     enemyHp: 0.7,
@@ -26,10 +26,11 @@ const DIFFICULTIES = {
     extraRunnerAt: 95,
     iframes: 0.9,
     pickups: 7,
+    light: 340,
   },
-  lantern: {
-    id: "lantern",
-    name: "Lantern",
+  candle: {
+    id: "candle",
+    name: "Candle",
     playerHp: 1,
     playerDmg: 1,
     enemyHp: 1,
@@ -47,6 +48,7 @@ const DIFFICULTIES = {
     extraRunnerAt: 70,
     iframes: 0.7,
     pickups: 5,
+    light: 260,
   },
   black: {
     id: "black",
@@ -68,6 +70,7 @@ const DIFFICULTIES = {
     extraRunnerAt: 40,
     iframes: 0.55,
     pickups: 3,
+    light: 140,
   },
 };
 
@@ -188,7 +191,7 @@ const ui = {
 const G = {
   mode: "title",
   classId: "rogue",
-  difficulty: "lantern",
+  difficulty: "candle",
   t: 0,
   floor: 1,
   kills: 0,
@@ -254,11 +257,11 @@ function endStick() {
 }
 
 function D() {
-  return DIFFICULTIES[G.difficulty] || DIFFICULTIES.lantern;
+  return DIFFICULTIES[G.difficulty] || DIFFICULTIES.candle;
 }
 
 function markLastDifficulty() {
-  const last = localStorage.getItem(DIFF_KEY) || "lantern";
+  const last = localStorage.getItem(DIFF_KEY) || "candle";
   document.querySelectorAll(".diff-card").forEach((btn) => {
     btn.classList.toggle("last-pick", btn.dataset.diff === last);
   });
@@ -341,7 +344,7 @@ function distToSegment(px, py, x1, y1, x2, y2) {
 
 function startRun(classId, difficulty) {
   G.classId = classId;
-  G.difficulty = DIFFICULTIES[difficulty] ? difficulty : G.difficulty || "lantern";
+  G.difficulty = DIFFICULTIES[difficulty] ? difficulty : G.difficulty || "candle";
   localStorage.setItem(DIFF_KEY, G.difficulty);
   G.t = 0;
   G.floor = 1;
@@ -375,7 +378,7 @@ function startRun(classId, difficulty) {
     magnet: 48,
     regen: 0,
     armor: spec.armor || 0,
-    light: 260,
+    light: d.light,
     lightDmg: 0,
     facing: 0,
     moving: false,
@@ -1433,8 +1436,8 @@ function onKey(e, down) {
     return;
   }
   if (G.mode === "difficulty") {
-    if (e.code === "Digit1") startRun(G.classId, "candle");
-    if (e.code === "Digit2") startRun(G.classId, "lantern");
+    if (e.code === "Digit1") startRun(G.classId, "lantern");
+    if (e.code === "Digit2") startRun(G.classId, "candle");
     if (e.code === "Digit3") startRun(G.classId, "black");
     if (e.code === "Escape") setMode("select");
     return;
@@ -1562,8 +1565,8 @@ if (boot === "difficulty") setMode("difficulty");
 if (boot.startsWith("play")) {
   const parts = boot.split("/");
   const id = parts[1] || "rogue";
-  const diff = parts[2] || localStorage.getItem(DIFF_KEY) || "lantern";
-  G.difficulty = DIFFICULTIES[diff] ? diff : "lantern";
+  const diff = parts[2] || localStorage.getItem(DIFF_KEY) || "candle";
+  G.difficulty = DIFFICULTIES[diff] ? diff : "candle";
   startRun(CLASSES[id] ? id : "rogue", G.difficulty);
 }
 requestAnimationFrame(loop);

@@ -30,7 +30,7 @@ Phones and tablets: open the same URL, tap Descend, pick a champion, pick how da
 
 ## Difficulty
 
-After the champion: **Candle** (easy), **Lantern** (normal), **No Light** (hard). Spawn rate, enemy health and damage, your HP, and how soon elites arrive all change.
+After the champion: **Lantern** (easy, most light), **Candle** (normal, a little light), **No Light** (hard, almost dark). Less light is harder. Spawn rate, enemy health and damage, your HP, how far you can see, and how soon elites arrive all change.
 
 You do not aim. Knives, a circling blade, or homing motes fire on their own. Kill enough and the lantern steadies — pick a gift. Stairs in the far room go deeper. Deeper is worse.
 

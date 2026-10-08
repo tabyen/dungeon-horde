@@ -340,7 +340,11 @@ function beginSession() {
         sessionId = id;
         pingTimer = setInterval(() => {
           if (!sessionLive || !sessionId) return;
-          pingSession(sessionId, Math.round(G.t * 1000)).catch(() => {});
+          pingSession(sessionId, Math.round(G.t * 1000), {
+            kills: G.kills,
+            floor: G.floor,
+            level: G.player ? G.player.level : 1,
+          }).catch(() => {});
         }, 7000);
       }
       return id;
@@ -1215,7 +1219,13 @@ function die() {
     if (!playerIntact()) voidRun(false);
     const sid = tampered ? null : pendingId || (await sessionReady);
     rec.sessionId = sid;
-    if (sid) await pingSession(sid, Math.round(rec.time * 1000)).catch(() => {});
+    if (sid) {
+      await pingSession(sid, Math.round(rec.time * 1000), {
+        kills: rec.kills,
+        floor: rec.floor,
+        level: rec.level,
+      }).catch(() => {});
+    }
     await board.onDeath(rec);
   };
   sign();

@@ -152,10 +152,24 @@ async function handlePing(req, env) {
   const row = await env.DB.prepare("SELECT * FROM sessions WHERE id = ?").bind(id).first();
   if (!row || row.submitted) return json(req, { error: "no such run" }, 404);
   const now = Date.now();
-  const check = pingOk({ startedAt: row.started_at, now, lastTMs: row.last_t_ms, tMs });
+  const check = pingOk({
+    startedAt: row.started_at,
+    now,
+    lastPingAt: row.last_ping_at,
+    lastTMs: row.last_t_ms,
+    lastKills: row.kills || 0,
+    lastFloor: row.floor || 1,
+    lastLevel: row.level || 1,
+    tMs,
+    kills: Number(parsed.body.kills),
+    floor: Number(parsed.body.floor),
+    level: Number(parsed.body.level),
+  });
   if (!check.ok) return json(req, { error: check.error }, 400);
-  await env.DB.prepare("UPDATE sessions SET last_ping_at = ?, last_t_ms = ?, ping_n = ping_n + 1 WHERE id = ?")
-    .bind(now, tMs, id)
+  await env.DB.prepare(
+    "UPDATE sessions SET last_ping_at = ?, last_t_ms = ?, kills = ?, floor = ?, level = ?, ping_n = ping_n + 1 WHERE id = ?"
+  )
+    .bind(now, check.tMs, check.kills, check.floor, check.level, id)
     .run();
   return json(req, { ok: true });
 }
@@ -167,7 +181,13 @@ async function handleSubmit(req, env) {
   const sessionId = String(parsed.body.sessionId || "");
   const session = await env.DB.prepare("SELECT * FROM sessions WHERE id = ?").bind(sessionId).first();
   if (!session) return json(req, { error: "no such run" }, 404);
-  const check = parseRun(parsed.body);
+  const check = parseRun({
+    ...parsed.body,
+    timeMs: session.last_t_ms,
+    kills: session.kills || 0,
+    floor: session.floor || 1,
+    level: session.level || 1,
+  });
   if (!check.ok) return json(req, { error: check.error }, 400);
   const r = check.run;
   if (r.board !== session.board || r.classId !== session.class_id) return json(req, { error: "run does not match" }, 400);

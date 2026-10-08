@@ -106,20 +106,20 @@ export function parseRun(body) {
     return { ok: false, error: "time looks wrong" };
   }
 
-  const kills = Number(body.kills);
-  const maxKills = 30 + Math.floor((timeMs / 1000) * 6);
-  if (!Number.isInteger(kills) || kills < 0 || kills > maxKills) {
-    return { ok: false, error: "kills look wrong" };
-  }
-
   const floor = Number(body.floor);
-  const maxFloor = 1 + Math.max(0, Math.floor((timeMs - 3000) / 6000));
+  const maxFloor = maxFloorForTime(timeMs);
   if (!Number.isInteger(floor) || floor < 1 || floor > 40 || floor > maxFloor) {
     return { ok: false, error: "floor looks wrong" };
   }
 
+  const kills = Number(body.kills);
+  const maxKills = maxKillsForTime(timeMs, floor);
+  if (!Number.isInteger(kills) || kills < 0 || kills > maxKills) {
+    return { ok: false, error: "kills look wrong" };
+  }
+
   const level = Number(body.level);
-  const maxLevel = 1 + Math.floor(kills / 4) + Math.floor(timeMs / 15000);
+  const maxLevel = maxLevelForTime(timeMs, kills);
   if (!Number.isInteger(level) || level < 1 || level > 40 || level > maxLevel) {
     return { ok: false, error: "lantern level looks wrong" };
   }
@@ -142,12 +142,74 @@ export function parseRun(body) {
 }
 
 const CLOCK_SLACK_MS = 2500;
+const MAX_STEP_MS = 20_000;
+const FLOOR_MS = 9_000;
 
-export function pingOk({ startedAt, now, lastTMs, tMs }) {
+// No Light spawn credit is (0.9 + 0.035t + 0.25 per extra floor) * 1.5 per second.
+// Integrated, then multiplied for the extra runner, mite, and husk-split spawns.
+export function maxKillsForTime(timeMs, floor = 1) {
+  const t = Math.max(0, Number(timeMs) / 1000);
+  const depth = Math.max(0, Number(floor) - 1);
+  const spawned = 1.5 * (0.9 * t + 0.0175 * t * t + 0.25 * depth * t);
+  return Math.ceil(40 + spawned * 4);
+}
+
+export function maxKillStep(lastTMs, tMs, floor) {
+  const crowd = 180 + Math.floor(Math.max(0, tMs) / 1000 / 5);
+  return crowd + Math.max(0, maxKillsForTime(tMs, floor) - maxKillsForTime(lastTMs, floor));
+}
+
+export function maxFloorForTime(timeMs) {
+  return 1 + Math.floor(Math.max(0, timeMs) / FLOOR_MS);
+}
+
+export function maxLevelForKills(kills) {
+  let xp = Math.max(0, kills) * 12;
+  let level = 1;
+  while (level < 40) {
+    const need = Math.floor(6 * Math.pow(level, 1.32));
+    if (xp < need) break;
+    xp -= need;
+    level += 1;
+  }
+  return level;
+}
+
+export function maxLevelForTime(timeMs, kills) {
+  return Math.min(40, maxLevelForKills(kills), 1 + Math.floor(kills / 4) + Math.floor(timeMs / 15000));
+}
+
+export function pingOk({
+  startedAt,
+  now,
+  lastTMs,
+  lastPingAt,
+  tMs,
+  lastKills = 0,
+  lastFloor = 1,
+  lastLevel = 1,
+  kills,
+  floor,
+  level,
+}) {
   if (!Number.isFinite(tMs) || tMs < 0) return { ok: false, error: "time looks wrong" };
   if (tMs < lastTMs - 250) return { ok: false, error: "time went backwards" };
   if (tMs > now - startedAt + CLOCK_SLACK_MS) return { ok: false, error: "clock disagrees" };
-  return { ok: true };
+  const sincePing = lastPingAt == null ? MAX_STEP_MS : Math.max(0, now - lastPingAt) + CLOCK_SLACK_MS;
+  if (tMs > lastTMs + Math.min(MAX_STEP_MS, sincePing)) return { ok: false, error: "clock jumped" };
+
+  if (kills == null && floor == null && level == null) return { ok: true };
+  if (!Number.isInteger(kills) || kills < lastKills) return { ok: false, error: "kills look wrong" };
+  if (!Number.isInteger(floor) || floor < lastFloor) return { ok: false, error: "floor looks wrong" };
+  if (!Number.isInteger(level) || level < lastLevel) return { ok: false, error: "lantern level looks wrong" };
+  if (kills > maxKillsForTime(tMs, floor)) return { ok: false, error: "kills look wrong" };
+  if (floor > maxFloorForTime(tMs)) return { ok: false, error: "floor looks wrong" };
+  if (level > maxLevelForTime(tMs, kills)) return { ok: false, error: "lantern level looks wrong" };
+
+  const catchingUp = lastKills === 0 && lastFloor === 1 && lastLevel === 1 && lastTMs > 0;
+  const maxKills = catchingUp ? maxKillsForTime(tMs, floor) : lastKills + maxKillStep(lastTMs, tMs, floor);
+  if (kills > maxKills) return { ok: false, error: "kills look wrong" };
+  return { ok: true, kills, floor, level, tMs: Math.round(tMs) };
 }
 
 export function sessionSubmitOk({ startedAt, now, lastTMs, lastPingAt, pingN, timeMs, submitted }) {

@@ -193,7 +193,11 @@ export function bindBoard({ getDifficulty, className }) {
     deadSubmit && (deadSubmit.disabled = true);
     boardSubmit && (boardSubmit.disabled = true);
     try {
-      await pingSession(rec.sessionId, Math.round(rec.time * 1000)).catch(() => {});
+      await pingSession(rec.sessionId, Math.round(rec.time * 1000), {
+        kills: rec.kills,
+        floor: rec.floor,
+        level: rec.level,
+      }).catch(() => {});
       const data = await api("/api/runs", {
         method: "POST",
         body: JSON.stringify({
@@ -345,9 +349,15 @@ export async function startSession({ board, classId }) {
   return data.id;
 }
 
-export async function pingSession(id, tMs) {
+export async function pingSession(id, tMs, progress = {}) {
   await api("/api/sessions/ping", {
     method: "POST",
-    body: JSON.stringify({ id, tMs }),
+    body: JSON.stringify({
+      id,
+      tMs,
+      kills: progress.kills ?? 0,
+      floor: progress.floor ?? 1,
+      level: progress.level ?? 1,
+    }),
   });
 }

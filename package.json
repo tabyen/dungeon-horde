@@ -5,7 +5,13 @@
   "description": "Crawler — a real-time dungeon horde. There is a room at the bottom.",
   "scripts": {
     "start": "python3 -m http.server 8765 --bind 0.0.0.0",
-    "test": "node --test test/map.test.mjs"
+    "dev": "wrangler d1 migrations apply crawler-scores --local && wrangler dev",
+    "test": "node --test test/*.mjs",
+    "store:web": "node scripts/store-web.mjs",
+    "deploy": "wrangler d1 migrations apply crawler-scores --remote && wrangler deploy"
   },
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "wrangler": "^4.134.0"
+  }
 }

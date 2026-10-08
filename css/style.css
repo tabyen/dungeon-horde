@@ -1,3 +1,43 @@
+@font-face {
+  font-family: "IM Fell English";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../assets/fonts/im-fell-english-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "IM Fell English";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../assets/fonts/im-fell-english-latin-400-italic.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: Cinzel;
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../assets/fonts/cinzel-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: Cinzel;
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../assets/fonts/cinzel-latin-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: Cinzel;
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../assets/fonts/cinzel-latin-700-normal.woff2") format("woff2");
+}
+
 :root {
   --bg: #0c0908;
   --ink: #e8dcc8;
@@ -254,6 +294,48 @@ button {
 .btn.ghost:focus {
   background: #2a2018;
   color: var(--ink);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
+}
+
+.dead-sign {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: end;
+  margin: 16px 0 8px;
+  text-align: left;
+}
+
+.dead-sign label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-family: Cinzel, Palatino, serif;
+}
+
+.dead-sign input {
+  appearance: none;
+  background: #0c0908;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-family: "IM Fell English", Palatino, Georgia, serif;
+  font-size: 18px;
+  padding: 10px 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.dead-sign input:focus {
+  outline: none;
+  border-color: var(--gold);
 }
 
 .row {
@@ -531,6 +613,11 @@ body.coarse .copy-touch {
     padding: 14px 24px;
   }
 
+  .board-fields .room-row,
+  .dead-sign {
+    grid-template-columns: 1fr;
+  }
+
   .choice {
     min-height: 88px;
   }
@@ -605,6 +692,144 @@ a.btn {
   text-decoration: none;
   display: inline-flex;
   align-items: center;
+}
+
+.title-actions {
+  margin-top: 4px;
+}
+
+.board-panel {
+  max-width: 560px;
+  width: calc(100% - 32px);
+  text-align: left;
+}
+
+.board-panel h2,
+.board-panel .eyebrow {
+  text-align: center;
+}
+
+.board-fields {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0 14px;
+}
+
+.board-fields label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-family: Cinzel, Palatino, serif;
+}
+
+.board-fields input {
+  appearance: none;
+  background: #0c0908;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-family: "IM Fell English", Palatino, Georgia, serif;
+  font-size: 18px;
+  padding: 10px 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.board-fields input:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+.board-fields .room-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.board-tabs {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin: 8px 0 16px;
+}
+
+.board-tabs button {
+  appearance: none;
+  border: 1px solid #5a4a38;
+  background: transparent;
+  color: var(--muted);
+  font-family: Cinzel, Palatino, serif;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.board-tabs button.on {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.board-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: min(40vh, 360px);
+  overflow-y: auto;
+}
+
+.board-list li {
+  display: grid;
+  grid-template-columns: 2ch 1fr auto;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid #2a2218;
+  font-size: 16px;
+}
+
+.board-list .rank {
+  color: var(--gold);
+  font-family: Cinzel, Palatino, serif;
+}
+
+.board-list .who {
+  min-width: 0;
+}
+
+.board-list .who small {
+  display: block;
+  color: #7a6c58;
+  font-size: 13px;
+}
+
+.board-list .report {
+  display: block;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #7a6c58;
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.board-list .time {
+  font-family: ui-monospace, Menlo, monospace;
+  color: var(--gold);
+}
+
+.board-list.compact {
+  max-height: 160px;
+  margin: 12px 0;
+  text-align: left;
 }
 
 .portal-link {

@@ -1,5 +1,6 @@
 import { TILE, TILE_WALL, TILE_STAIRS, generateDungeon, buildFlowField } from "./map.js";
 import { createAudio } from "./audio.js";
+import { bindBoard, pingSession, startSession } from "./board.js";
 
 const TAU = Math.PI * 2;
 const BEST_KEY = "crawler-best";
@@ -119,6 +120,8 @@ const ENEMY_KINDS = {
   runner: { hp: 10, speed: 98, r: 8, xp: 2, damage: 6, color: "#7a3e28", eyes: "#f0c070" },
   brute: { hp: 58, speed: 30, r: 16, xp: 5, damage: 16, color: "#3a322c", eyes: "#e07040" },
   watcher: { hp: 30, speed: 118, r: 12, xp: 6, damage: 14, color: "#2e2438", eyes: "#d080ff" },
+  mite: { hp: 7, speed: 138, r: 5, xp: 1, damage: 5, color: "#6a3028", eyes: "#f09060" },
+  husk: { hp: 96, speed: 26, r: 19, xp: 9, damage: 22, color: "#241e1a", eyes: "#c9a35a", resist: 0.35 },
 };
 
 const UPGRADES = [
@@ -134,6 +137,17 @@ const UPGRADES = [
   { id: "armor", name: "Hide", desc: "The dark takes a smaller bite. +15% resist." },
   { id: "light", name: "Brighter Lantern", desc: "See farther. The light itself stings." },
 ];
+
+function harden(o) {
+  if (!o || typeof o !== "object" || Object.isFrozen(o)) return o;
+  Object.freeze(o);
+  for (const v of Object.values(o)) harden(v);
+  return o;
+}
+harden(DIFFICULTIES);
+harden(CLASSES);
+harden(ENEMY_KINDS);
+harden(UPGRADES);
 
 const NOTES = [
   "The walls remember names. I've stopped reading them.",
@@ -167,6 +181,7 @@ const ui = {
   levelup: document.getElementById("levelup"),
   pause: document.getElementById("pause"),
   dead: document.getElementById("dead"),
+  board: document.getElementById("board"),
   note: document.getElementById("note"),
   floor: document.getElementById("floor"),
   timer: document.getElementById("timer"),
@@ -213,7 +228,125 @@ const G = {
   usedNotes: [],
   flow: null,
   flowAt: -1,
+  choices: [],
+  whisper45: false,
+  whisperMite: false,
+  whisperHusk: false,
 };
+
+let writeDepth = 0;
+function auth(fn) {
+  writeDepth += 1;
+  try {
+    return fn();
+  } finally {
+    writeDepth -= 1;
+  }
+}
+function lockField(obj, key) {
+  let v = obj[key];
+  Object.defineProperty(obj, key, {
+    configurable: false,
+    enumerable: true,
+    get() {
+      return v;
+    },
+    set(next) {
+      if (writeDepth > 0) v = next;
+    },
+  });
+}
+function lockPlayer(p) {
+  for (const key of [
+    "hp",
+    "maxHp",
+    "speed",
+    "damage",
+    "dmgMul",
+    "atkSpd",
+    "projectiles",
+    "pierce",
+    "area",
+    "magnet",
+    "regen",
+    "armor",
+    "light",
+    "lightDmg",
+    "iframes",
+    "xp",
+    "xpNeed",
+    "level",
+    "cd",
+  ]) {
+    lockField(p, key);
+  }
+}
+lockField(G, "t");
+lockField(G, "kills");
+lockField(G, "floor");
+lockField(G, "player");
+Object.seal(G);
+
+let playerRef = null;
+let tampered = false;
+
+function voidRun(why) {
+  if (tampered) return;
+  tampered = true;
+  stopSession();
+  sessionId = null;
+  sessionReady = Promise.resolve(null);
+  if (why) log("The wall looks away.");
+}
+
+function playerIntact() {
+  const p = G.player;
+  if (!p || p !== playerRef) return false;
+  const hp = Object.getOwnPropertyDescriptor(p, "hp");
+  const dmg = Object.getOwnPropertyDescriptor(p, "dmgMul");
+  if (!hp || hp.configurable || typeof hp.get !== "function") return false;
+  if (!dmg || dmg.configurable) return false;
+  return true;
+}
+
+function pruneDead(list) {
+  let w = 0;
+  for (let i = 0; i < list.length; i++) {
+    if (!list[i].dead) list[w++] = list[i];
+  }
+  list.length = w;
+}
+
+let sessionId = null;
+let pingTimer = null;
+let sessionLive = false;
+let sessionReady = Promise.resolve(null);
+
+function stopSession() {
+  sessionLive = false;
+  if (pingTimer) {
+    clearInterval(pingTimer);
+    pingTimer = null;
+  }
+}
+
+function beginSession() {
+  stopSession();
+  sessionId = null;
+  sessionLive = true;
+  sessionReady = startSession({ board: G.difficulty, classId: G.classId })
+    .then((id) => {
+      if (sessionLive) {
+        sessionId = id;
+        pingTimer = setInterval(() => {
+          if (!sessionLive || !sessionId) return;
+          pingSession(sessionId, Math.round(G.t * 1000)).catch(() => {});
+        }, 7000);
+      }
+      return id;
+    })
+    .catch(() => null);
+}
 
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -276,6 +409,7 @@ function setMode(mode) {
   hide(ui.levelup);
   hide(ui.pause);
   hide(ui.dead);
+  hide(ui.board);
   hide(ui.pauseBtn);
   if (mode === "title") {
     hide(ui.hud);
@@ -300,6 +434,10 @@ function setMode(mode) {
   } else if (mode === "dead") {
     show(ui.hud);
     show(ui.dead);
+  } else if (mode === "board") {
+    hide(ui.hud);
+    show(ui.board);
+    board.openFrom(board.cameFrom());
   }
 }
 
@@ -343,20 +481,22 @@ function distToSegment(px, py, x1, y1, x2, y2) {
 }
 
 function startRun(classId, difficulty) {
+  board.clearPending();
   G.classId = classId;
   G.difficulty = DIFFICULTIES[difficulty] ? difficulty : G.difficulty || "candle";
   localStorage.setItem(DIFF_KEY, G.difficulty);
-  G.t = 0;
-  G.floor = 1;
-  G.kills = 0;
   G.spawnCredit = 0;
   G.nextId = 1;
+  G.whisper45 = false;
+  G.whisperMite = false;
+  G.whisperHusk = false;
   G.log = [];
+  tampered = false;
   ui.log.innerHTML = "";
   const spec = CLASSES[classId];
   const d = D();
   const hp = Math.round(spec.hp * d.playerHp);
-  G.player = {
+  const p = {
     classId,
     x: 0,
     y: 0,
@@ -390,6 +530,15 @@ function startRun(classId, difficulty) {
     orbitHits: new Map(),
     pendingLevels: 0,
   };
+  lockPlayer(p);
+  Object.seal(p);
+  playerRef = p;
+  auth(() => {
+    G.t = 0;
+    G.floor = 1;
+    G.kills = 0;
+    G.player = p;
+  });
   buildFloor(true);
   setMode("play");
   log(`${d.name}. You descend into the dark.`);
@@ -398,6 +547,7 @@ function startRun(classId, difficulty) {
   snapCamera();
   updateHud();
   render();
+  beginSession();
 }
 
 function buildFloor(first) {
@@ -406,12 +556,12 @@ function buildFloor(first) {
   G.player.x = G.map.worldX(spawn.x);
   G.player.y = G.map.worldY(spawn.y);
   snapCamera();
-  G.enemies = [];
-  G.bullets = [];
-  G.gems = [];
-  G.particles = [];
-  G.floaters = [];
-  G.pickups = [];
+  G.enemies.length = 0;
+  G.bullets.length = 0;
+  G.gems.length = 0;
+  G.particles.length = 0;
+  G.floaters.length = 0;
+  G.pickups.length = 0;
   const d = D();
   G.flow = null;
   G.flowAt = -1;
@@ -489,65 +639,70 @@ function openLevelUp() {
 
 function applyUpgrade(id) {
   const p = G.player;
-  switch (id) {
-    case "damage":
-      p.dmgMul *= 1.25;
-      break;
-    case "haste":
-      p.atkSpd *= 1.18;
-      break;
-    case "boots":
-      p.speed *= 1.14;
-      break;
-    case "vital":
-      p.maxHp += 25;
-      p.hp = Math.min(p.maxHp, p.hp + 25);
-      break;
-    case "magnet":
-      p.magnet += 42;
-      break;
-    case "pierce":
-      p.pierce += 1;
-      break;
-    case "multi":
-      p.projectiles += 1;
-      break;
-    case "area":
-      p.area *= 1.22;
-      break;
-    case "regen":
-      p.regen += 1;
-      break;
-    case "armor":
-      p.armor = Math.min(0.65, p.armor + 0.15);
-      break;
-    case "light":
-      p.light += 70;
-      p.lightDmg += 2.2;
-      break;
-  }
+  auth(() => {
+    switch (id) {
+      case "damage":
+        p.dmgMul *= 1.25;
+        break;
+      case "haste":
+        p.atkSpd *= 1.18;
+        break;
+      case "boots":
+        p.speed *= 1.14;
+        break;
+      case "vital":
+        p.maxHp += 25;
+        p.hp = Math.min(p.maxHp, p.hp + 25);
+        break;
+      case "magnet":
+        p.magnet += 42;
+        break;
+      case "pierce":
+        p.pierce += 1;
+        break;
+      case "multi":
+        p.projectiles += 1;
+        break;
+      case "area":
+        p.area *= 1.22;
+        break;
+      case "regen":
+        p.regen += 1;
+        break;
+      case "armor":
+        p.armor = Math.min(0.65, p.armor + 0.15);
+        break;
+      case "light":
+        p.light += 70;
+        p.lightDmg += 2.2;
+        break;
+    }
+  });
   p.pendingLevels = Math.max(0, p.pendingLevels - 1);
   if (p.pendingLevels > 0) openLevelUp();
   else setMode("play");
 }
 
-function pickSpawnTile() {
+function pickSpawnTile(kind) {
   const p = G.player;
+  const minD = kind === "mite" ? 110 : 240;
+  const span = kind === "mite" ? 150 : 220;
+  const base = kind === "mite" ? 130 : 320;
   for (let i = 0; i < 24; i++) {
     const ang = Math.random() * TAU;
-    const d = 320 + Math.random() * 220;
+    const d = base + Math.random() * span;
     const x = p.x + Math.cos(ang) * d;
     const y = p.y + Math.sin(ang) * d;
     const tx = Math.floor(x / TILE);
     const ty = Math.floor(y / TILE);
     if (!G.map.isWalkable(tx, ty)) continue;
-    if (Math.hypot(x - p.x, y - p.y) < 240) continue;
+    if (Math.hypot(x - p.x, y - p.y) < minD) continue;
     return { x: G.map.worldX(tx), y: G.map.worldY(ty) };
   }
   const far = G.map.floors.filter((t) => {
     const dx = G.map.worldX(t.x) - p.x;
     const dy = G.map.worldY(t.y) - p.y;
-    return dx * dx + dy * dy > 280 * 280;
+    return dx * dx + dy * dy > minD * minD;
   });
   const t = far.length ? far[(Math.random() * far.length) | 0] : G.map.floors[(Math.random() * G.map.floors.length) | 0];
   return { x: G.map.worldX(t.x), y: G.map.worldY(t.y) };
@@ -556,31 +711,54 @@ function pickSpawnTile() {
 function enemyKindForTime(t) {
   const delay = D().eliteDelay;
   const roll = Math.random();
+  if (t > 150 * delay && roll < 0.1) return "husk";
   if (t > 95 * delay && roll < 0.12) return "watcher";
+  if (t > 70 * delay && roll < 0.18) return "mite";
   if (t > 55 * delay && roll < 0.22) return "brute";
   if (t > 22 * delay && roll < 0.42) return "runner";
   return "crawler";
 }
 
-function spawnEnemy(kind) {
+function enemyHpMul() {
   const d = D();
-  if (G.enemies.length >= d.enemyCap) return;
-  const spec = ENEMY_KINDS[kind];
-  const pos = pickSpawnTile();
   const floorMul = 1 + (G.floor - 1) * 0.16;
+  const t = Math.max(0, G.t - 50);
+  const timeMul = 1 + d.ramp * Math.pow(t / 110, 1.38);
+  const lanternMul = G.player ? 1 + d.ramp * Math.max(0, G.player.level - 1) * 0.08 : 1;
+  return floorMul * timeMul * lanternMul * d.enemyHp;
+}
+
+function enemyDmgMul() {
+  const d = D();
+  const t = Math.max(0, G.t - 50);
+  return d.enemyDmg * (1 + d.ramp * Math.min(1.2, t / 300));
+}
+
+function enemyCapNow() {
+  const d = D();
+  return d.enemyCap + Math.floor(G.t * 0.12 * d.ramp);
+}
+
+function spawnEnemy(kind, at) {
+  if (G.enemies.length >= enemyCapNow()) return;
+  const spec = ENEMY_KINDS[kind];
+  if (!spec) return;
+  const pos = at || pickSpawnTile(kind);
+  const hp = spec.hp * enemyHpMul();
   G.enemies.push({
     id: G.nextId++,
     kind,
     x: pos.x,
     y: pos.y,
     r: spec.r,
-    hp: spec.hp * floorMul * d.enemyHp,
-    maxHp: spec.hp * floorMul * d.enemyHp,
-    speed: spec.speed * d.enemySpeed,
-    damage: spec.damage * d.enemyDmg,
+    hp,
+    maxHp: hp,
+    speed: spec.speed * D().enemySpeed,
+    damage: spec.damage * enemyDmgMul(),
     xp: spec.xp,
     color: spec.color,
     eyes: spec.eyes,
+    resist: spec.resist || 0,
     charged: kind !== "watcher",
     hitFlash: 0,
   });
@@ -608,13 +786,14 @@ function floater(x, y, text, color) {
 }
 
 function hurtEnemy(e, amount, fromX, fromY) {
-  e.hp -= amount;
+  const dealt = amount * (1 - (e.resist || 0));
+  e.hp -= dealt;
   e.hitFlash = 0.08;
-  const kb = 28;
+  const kb = e.kind === "husk" ? 8 : 28;
   const d = len(e.x - fromX, e.y - fromY);
   e.x += ((e.x - fromX) / d) * kb * 0.08;
   e.y += ((e.y - fromY) / d) * kb * 0.08;
-  floater(e.x, e.y - e.r - 6, `${Math.round(amount)}`, "#f0d8a8");
+  floater(e.x, e.y - e.r - 6, `${Math.round(dealt)}`, "#f0d8a8");
   if (e.hp <= 0) killEnemy(e);
 }
 
@@ -629,6 +808,10 @@ function killEnemy(e) {
   }
   if (e.kind === "watcher" && Math.random() < 0.45) {
     G.pickups.push({ x: e.x, y: e.y, kind: "fuel", r: 8 });
+  }
+  if (e.kind === "husk") {
+    spawnEnemy("mite", { x: e.x + 12, y: e.y });
+    spawnEnemy("mite", { x: e.x - 12, y: e.y });
   }
 }
 
@@ -825,6 +1008,7 @@ function updateEnemies(dt) {
     G.spawnCredit -= 1;
     spawnEnemy(enemyKindForTime(G.t));
     if (G.t > d.extraRunnerAt && Math.random() < d.extraRunner) spawnEnemy("runner");
+    if (G.t > 90 * d.eliteDelay && Math.random() < 0.22 * d.ramp) spawnEnemy("mite");
   }
 
   for (let i = 0; i < G.enemies.length; i++) {
@@ -852,7 +1036,7 @@ function updateEnemies(dt) {
     if (e.hitFlash > 0) e.hitFlash -= dt;
 
     if (p.lightDmg > 0 && dist < p.light * 0.28) {
-      e.hp -= p.lightDmg * dt;
+      e.hp -= p.lightDmg * dt * (1 - (e.resist || 0));
       if (e.hp <= 0) {
         killEnemy(e);
         continue;
@@ -876,7 +1060,7 @@ function updateEnemies(dt) {
     }
   }
 
-  G.enemies = G.enemies.filter((e) => !e.dead);
+  pruneDead(G.enemies);
 
   for (let i = 0; i < G.enemies.length; i++) {
     for (let j = i + 1; j < G.enemies.length; j++) {
@@ -1013,7 +1197,11 @@ function die() {
     classId: G.classId,
     difficulty: G.difficulty,
     level: G.player.level,
+    sessionId,
   };
+  stopSession();
+  const pendingId = sessionId;
+  sessionId = null;
   const prev = JSON.parse(localStorage.getItem(BEST_KEY) || "null");
   if (!prev || rec.time > prev.time) localStorage.setItem(BEST_KEY, JSON.stringify(rec));
   ui.deadStats.textContent = `${CLASSES[G.classId].name} · ${D().name} · ${fmtTime(G.t)} · ${G.kills} slain · floor ${G.floor} · lantern ${G.player.level}`;
@@ -1023,6 +1211,14 @@ function die() {
     ? `Longest lantern: ${fmtTime(best.time)} (${CLASSES[best.classId].name}${bestDiff ? ", " + bestDiff : ""}, ${best.kills} slain)`
     : "";
   setMode("dead");
+  const sign = async () => {
+    if (!playerIntact()) voidRun(false);
+    const sid = tampered ? null : pendingId || (await sessionReady);
+    rec.sessionId = sid;
+    if (sid) await pingSession(sid, Math.round(rec.time * 1000)).catch(() => {});
+    await board.onDeath(rec);
+  };
+  sign();
 }
 
 function fmtTime(t) {
@@ -1123,45 +1319,299 @@ function drawGems() {
   }
 }
 
+function oval(ox, oy, rx, ry) {
+  ctx.beginPath();
+  ctx.ellipse(ox, oy, rx, ry, 0, 0, TAU);
+  ctx.fill();
+}
+
+function drawCrawlerFig(walk, flash) {
+  const l = walk * 2.2;
+  ctx.fillStyle = flash ? "#e8e0c8" : "#3a4428";
+  oval(-3.4, 7.6 + l, 2.4, 3.2);
+  oval(3.2, 7.8 - l, 2.4, 3.2);
+  ctx.fillStyle = flash ? "#f0e8d8" : "#4e5a32";
+  oval(0, 1.2, 6.2, 5.4);
+  ctx.fillStyle = flash ? "#d8d0b8" : "#2e3a20";
+  oval(-7.4, 2.8 + l * 0.4, 2.1, 4.6);
+  oval(7.2, 3.2 - l * 0.4, 2.1, 4.6);
+  ctx.fillStyle = flash ? "#e8e0c8" : "#5a6840";
+  oval(0.6, -5.4, 4.2, 3.8);
+  ctx.fillStyle = flash ? "#f0e8d8" : "#c4d46a";
+  oval(1.8, -5.6, 1.15, 1.2);
+  oval(-0.6, -5.4, 1.05, 1.1);
+  ctx.fillStyle = "#1a0a00";
+  oval(2.05, -5.6, 0.5, 0.5);
+  oval(-0.4, -5.4, 0.45, 0.45);
+}
+
+function drawRunnerFig(walk, flash) {
+  const l = walk * 4.2;
+  ctx.fillStyle = flash ? "#e8e0c8" : "#5a2a1c";
+  oval(-5.5, 6.5 + l, 1.8, 3.6);
+  oval(4.8, 6.8 - l, 1.8, 3.6);
+  ctx.fillStyle = flash ? "#f0e8d8" : "#7a3e28";
+  ctx.beginPath();
+  ctx.moveTo(-5, 4);
+  ctx.lineTo(-7, -2);
+  ctx.lineTo(2, -4);
+  ctx.lineTo(7, 1);
+  ctx.lineTo(4, 7);
+  ctx.lineTo(-3, 7);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = flash ? "#d8d0b8" : "#4a2418";
+  oval(6.5, -0.5 - l * 0.3, 1.7, 4.2);
+  oval(-6.8, 1.5 + l * 0.3, 1.6, 3.8);
+  ctx.fillStyle = flash ? "#e8e0c8" : "#8a4a30";
+  oval(3.2, -5.8, 3.2, 2.6);
+  ctx.fillStyle = flash ? "#f0e8d8" : "#f0c070";
+  oval(4.6, -6, 1.1, 0.95);
+  ctx.fillStyle = "#1a0a00";
+  oval(4.85, -6, 0.45, 0.4);
+}
+
+function drawBruteFig(walk, flash) {
+  const l = walk * 1.4;
+  ctx.fillStyle = flash ? "#e8e0c8" : "#2a221c";
+  oval(-4.6, 7.4 + l, 3.4, 3.6);
+  oval(4.4, 7.6 - l, 3.4, 3.6);
+  ctx.fillStyle = flash ? "#f0e8d8" : "#3a322c";
+  oval(0, 1.5, 8.4, 7.2);
+  ctx.fillStyle = flash ? "#d8d0b8" : "#2a2420";
+  oval(-8.6, 3.5, 3.2, 5.4);
+  oval(8.4, 3.8, 3.2, 5.4);
+  ctx.fillStyle = flash ? "#e8e0c8" : "#4a4038";
+  oval(0.4, -6.2, 3.6, 3.2);
+  ctx.fillStyle = flash ? "#f0e8d8" : "#e07040";
+  oval(-0.8, -6.4, 1.15, 1.05);
+  oval(1.8, -6.5, 1.15, 1.05);
+  ctx.fillStyle = "#1a0a00";
+  oval(-0.55, -6.4, 0.5, 0.45);
+  oval(2.05, -6.5, 0.5, 0.45);
+}
+
+function drawWatcherFig(walk, flash) {
+  const float = Math.sin(walk) * 1.2;
+  ctx.fillStyle = flash ? "#e8e0c8" : "#1a1420";
+  ctx.beginPath();
+  ctx.moveTo(-5, 8 + float);
+  ctx.lineTo(-7, 12 + float);
+  ctx.lineTo(7, 12 + float);
+  ctx.lineTo(5, 8 + float);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = flash ? "#f0e8d8" : "#2e2438";
+  oval(0, 1 + float, 4.2, 7.4);
+  ctx.fillStyle = flash ? "#d8d0b8" : "#1e1828";
+  oval(-5.5, 2 + float, 1.6, 5.5);
+  oval(5.5, 2 + float, 1.6, 5.5);
+  ctx.fillStyle = flash ? "#e8e0c8" : "#3a2e48";
+  oval(0.4, -7.2 + float, 3.4, 3.6);
+  ctx.fillStyle = flash ? "#f0e8d8" : "#d080ff";
+  oval(-2.4, -7.4 + float, 1.05, 1.15);
+  oval(0.5, -8.1 + float, 1.15, 1.25);
+  oval(3.3, -7.3 + float, 1.05, 1.15);
+  ctx.fillStyle = "#1a0a00";
+  oval(-2.2, -7.4 + float, 0.4, 0.45);
+  oval(0.7, -8.1 + float, 0.45, 0.5);
+  oval(3.5, -7.3 + float, 0.4, 0.45);
+}
+
+function drawMiteFig(walk, flash) {
+  const l = walk * 2.8;
+  ctx.fillStyle = flash ? "#e8e0c8" : "#4a2018";
+  oval(-6.5, 2 + l, 1.2, 4.2);
+  oval(-3.5, 4 - l, 1.1, 3.6);
+  oval(3.2, 4 + l, 1.1, 3.6);
+  oval(6.4, 2 - l, 1.2, 4.2);
+  ctx.fillStyle = flash ? "#f0e8d8" : "#6a3028";
+  oval(0, 0.4, 5.4, 4.2);
+  ctx.fillStyle = flash ? "#e8e0c8" : "#8a4030";
+  oval(1.6, -1.2, 3.2, 2.8);
+  ctx.fillStyle = flash ? "#f0e8d8" : "#f09060";
+  oval(2.6, -1.4, 1.6, 1.5);
+  ctx.fillStyle = "#1a0a00";
+  oval(2.9, -1.4, 0.7, 0.65);
+}
+
+function drawHuskFig(walk, flash) {
+  const l = walk * 0.8;
+  ctx.fillStyle = flash ? "#e8e0c8" : "#1a1612";
+  oval(-5.2, 7.8 + l, 3.6, 3.4);
+  oval(5, 8 - l, 3.6, 3.4);
+  ctx.fillStyle = flash ? "#f0e8d8" : "#241e1a";
+  oval(0, 1.2, 9.2, 8);
+  ctx.fillStyle = flash ? "#d8d0b8" : "#3a3228";
+  ctx.fillRect(-6, -1, 4.5, 2);
+  ctx.fillRect(2, 3, 5, 2.2);
+  ctx.fillRect(-1, -4, 2, 6);
+  ctx.fillStyle = flash ? "#e8e0c8" : "#1a1612";
+  oval(-7.8, 2.5, 2.8, 4.8);
+  oval(8, 2.8, 2.8, 4.8);
+  ctx.fillStyle = flash ? "#f0e8d8" : "#2e2820";
+  oval(0.2, -6.6, 4.8, 3.4);
+  ctx.fillStyle = flash ? "#e8e0c8" : "#c9a35a";
+  oval(-1.4, -6.8, 1.2, 0.7);
+  oval(1.8, -6.9, 1.2, 0.7);
+  ctx.fillStyle = "#1a0a00";
+  oval(-1.2, -6.8, 0.55, 0.35);
+  oval(2, -6.9, 0.55, 0.35);
+}
+
+const ENEMY_DRAW = {
+  crawler: drawCrawlerFig,
+  runner: drawRunnerFig,
+  brute: drawBruteFig,
+  watcher: drawWatcherFig,
+  mite: drawMiteFig,
+  husk: drawHuskFig,
+};
+
 function drawEnemies() {
   for (const e of G.enemies) {
     const [x, y] = worldToScreen(e.x, e.y);
+    const look = Math.atan2(G.player.y - e.y, G.player.x - e.x);
+    const gait = e.kind === "runner" || e.kind === "mite" ? 16 : e.kind === "watcher" ? 5 : 9;
+    const walk = Math.sin(G.t * gait + e.id);
     ctx.fillStyle = "rgba(0,0,0,0.4)";
     ctx.beginPath();
-    ctx.ellipse(x, y + e.r * 0.7, e.r * 0.85, e.r * 0.32, 0, 0, TAU);
+    ctx.ellipse(x, y + e.r * 0.85, e.r * 0.95, e.r * 0.32, 0, 0, TAU);
     ctx.fill();
-    ctx.fillStyle = e.hitFlash > 0 ? "#f0e8d8" : e.color;
-    ctx.beginPath();
-    if (e.kind === "brute") ctx.ellipse(x, y, e.r, e.r * 0.85, 0, 0, TAU);
-    else if (e.kind === "runner") ctx.ellipse(x, y, e.r * 1.15, e.r * 0.7, 0, 0, TAU);
-    else if (e.kind === "watcher") ctx.ellipse(x, y - 2, e.r * 0.7, e.r * 1.15, 0, 0, TAU);
-    else ctx.arc(x, y, e.r, 0, TAU);
-    ctx.fill();
-    ctx.fillStyle = e.eyes;
-    const look = Math.atan2(G.player.y - e.y, G.player.x - e.x);
-    const ex = Math.cos(look) * 2.5;
-    const ey = Math.sin(look) * 2;
-    if (e.kind === "watcher") {
-      for (let i = -1; i <= 1; i++) {
-        ctx.beginPath();
-        ctx.arc(x + i * 4 + ex, y - 3 + ey, 1.6, 0, TAU);
-        ctx.fill();
-      }
-    } else {
-      ctx.beginPath();
-      ctx.arc(x - 3 + ex, y - 2 + ey, 1.7, 0, TAU);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(x + 3 + ex, y - 2 + ey, 1.7, 0, TAU);
-      ctx.fill();
-    }
+    ctx.save();
+    ctx.translate(x, y + 1);
+    ctx.scale((e.r / 10) * (Math.cos(look) < 0 ? -1 : 1), e.r / 10);
+    (ENEMY_DRAW[e.kind] || drawCrawlerFig)(walk, e.hitFlash > 0);
+    ctx.restore();
     if (e.hp < e.maxHp) {
       ctx.fillStyle = "#1a1010";
-      ctx.fillRect(x - e.r, y - e.r - 7, e.r * 2, 3);
+      ctx.fillRect(x - e.r, y - e.r - 8, e.r * 2, 3);
       ctx.fillStyle = "#c44a3a";
-      ctx.fillRect(x - e.r, y - e.r - 7, e.r * 2 * Math.max(0, e.hp / e.maxHp), 3);
+      ctx.fillRect(x - e.r, y - e.r - 8, e.r * 2 * Math.max(0, e.hp / e.maxHp), 3);
     }
   }
+}
+
+function drawRogue(walk) {
+  const l = walk * 3.2;
+  ctx.fillStyle = "#1a1612";
+  oval(-3.2, 10.5 + l, 2.2, 3.4);
+  oval(3.2, 10.5 - l, 2.2, 3.4);
+  ctx.fillStyle = "#2c2824";
+  ctx.beginPath();
+  ctx.moveTo(-8, 2);
+  ctx.lineTo(-6, 11);
+  ctx.lineTo(6, 11);
+  ctx.lineTo(8, 2);
+  ctx.lineTo(5, -4);
+  ctx.lineTo(-5, -4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#3a3530";
+  oval(0, 1, 5.2, 6.2);
+  ctx.fillStyle = "#c4a88a";
+  oval(1.4, -6.2, 3.4, 3.8);
+  ctx.fillStyle = "#1f1c18";
+  ctx.beginPath();
+  ctx.moveTo(-7, -4);
+  ctx.quadraticCurveTo(-8, -14, 1, -16);
+  ctx.lineTo(7, -7);
+  ctx.lineTo(6, -3);
+  ctx.lineTo(-5, -2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#e07030";
+  oval(3.2, -6.4, 1.15, 1.05);
+  ctx.fillStyle = "#1a0a00";
+  oval(3.55, -6.4, 0.55, 0.5);
+  ctx.fillStyle = "#d8c4a4";
+  ctx.save();
+  ctx.translate(6.5, 2);
+  ctx.rotate(0.5);
+  ctx.fillRect(-1, -7, 2, 9);
+  ctx.fillStyle = "#8a8a8a";
+  ctx.fillRect(-1.6, -10, 3.2, 4);
+  ctx.restore();
+}
+
+function drawWarrior(walk) {
+  const l = walk * 2.4;
+  ctx.fillStyle = "#3a3028";
+  oval(-3.6, 10.8 + l, 2.6, 3.2);
+  oval(3.6, 10.8 - l, 2.6, 3.2);
+  ctx.fillStyle = "#6a5848";
+  oval(0, 2.5, 6.4, 7.4);
+  ctx.fillStyle = "#5a4030";
+  ctx.fillRect(-6, 0, 12, 3);
+  ctx.fillStyle = "#8a8a8a";
+  ctx.beginPath();
+  ctx.moveTo(-7.5, 1);
+  ctx.lineTo(-6, 8);
+  ctx.lineTo(-3, 4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#c9a07a";
+  oval(1.2, -5.6, 3.6, 4);
+  ctx.fillStyle = "#9a9a9a";
+  oval(0.4, -8.2, 5.4, 4.4);
+  ctx.fillRect(-1.1, -8, 2.2, 5.5);
+  ctx.fillStyle = "#6a6a6a";
+  oval(-2.2, -8.4, 1.1, 1.1);
+  oval(3.2, -8.6, 1.1, 1.1);
+  ctx.fillStyle = "#1a0a00";
+  oval(3.1, -5.8, 1.05, 0.9);
+  ctx.fillStyle = "#c9b089";
+  oval(3.35, -5.85, 0.4, 0.35);
+}
+
+function drawWizard(walk) {
+  const l = walk * 2.2;
+  ctx.fillStyle = "#2a2a28";
+  oval(-2.8, 11 + l, 2.1, 2.8);
+  oval(2.8, 11 - l, 2.1, 2.8);
+  ctx.fillStyle = "#3a3a38";
+  ctx.beginPath();
+  ctx.moveTo(-7.5, -1);
+  ctx.lineTo(-9, 12);
+  ctx.lineTo(9, 12);
+  ctx.lineTo(7.5, -1);
+  ctx.lineTo(3, -6);
+  ctx.lineTo(-3, -6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#2e4a32";
+  oval(-4, 6, 1.6, 2.2);
+  oval(5, 3, 1.3, 1.8);
+  ctx.fillStyle = "#9aaa9a";
+  oval(1.2, -7.4, 3.3, 3.6);
+  ctx.fillStyle = "#5a2a78";
+  ctx.beginPath();
+  ctx.moveTo(-9, -8);
+  ctx.lineTo(-7, -10.5);
+  ctx.lineTo(8, -10);
+  ctx.lineTo(10, -7.2);
+  ctx.lineTo(6, -7);
+  ctx.lineTo(-6, -7.4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-2, -10);
+  ctx.lineTo(-8, -22);
+  ctx.lineTo(5, -11);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#3a1848";
+  ctx.fillRect(-3.5, -11.2, 8, 1.6);
+  ctx.fillStyle = "#e8c36a";
+  oval(2.9, -7.5, 1.15, 1.05);
+  ctx.fillStyle = "#1a0a00";
+  oval(3.15, -7.5, 0.5, 0.45);
+  ctx.fillStyle = "#6a4a28";
+  ctx.fillRect(7.2, -12, 1.8, 22);
+  ctx.fillStyle = "#40c060";
+  oval(8.1, -14.2, 2.4, 2.4);
+  ctx.fillStyle = "#c8f0c0";
+  oval(7.5, -14.8, 0.9, 0.9);
 }
 
 function drawPlayer() {
@@ -1172,56 +1622,15 @@ function drawPlayer() {
   const bob = Math.sin(G.t * (p.moving ? 14 : 6)) * 1.4;
   ctx.fillStyle = "rgba(0,0,0,0.45)";
   ctx.beginPath();
-  ctx.ellipse(x, y + p.r + 1, p.r * 0.9, p.r * 0.32, 0, 0, TAU);
+  ctx.ellipse(x, y + p.r + 1, p.r * 1.05, p.r * 0.34, 0, 0, TAU);
   ctx.fill();
-  ctx.fillStyle = "#1a1410";
-  ctx.beginPath();
-  ctx.arc(x, y + bob, p.r + 1.6, 0, TAU);
-  ctx.fill();
-  ctx.fillStyle = p.color;
-  ctx.beginPath();
-  ctx.arc(x, y + bob, p.r, 0, TAU);
-  ctx.fill();
-  if (p.classId === "rogue") {
-    ctx.fillStyle = "#2a2420";
-    ctx.beginPath();
-    ctx.moveTo(x, y + bob - p.r - 5);
-    ctx.lineTo(x - p.r - 1, y + bob - 1);
-    ctx.lineTo(x + p.r + 1, y + bob - 1);
-    ctx.closePath();
-    ctx.fill();
-  } else if (p.classId === "warrior") {
-    ctx.fillStyle = "#8a8a8a";
-    ctx.fillRect(x - p.r + 2, y + bob - 7, p.r * 2 - 4, 5);
-    ctx.fillStyle = "#2a2420";
-    ctx.fillRect(x - 5, y + bob - 6, 10, 3);
-  } else {
-    ctx.fillStyle = "#5a3a78";
-    ctx.beginPath();
-    ctx.moveTo(x, y + bob - p.r - 11);
-    ctx.lineTo(x - p.r - 3, y + bob - 1);
-    ctx.lineTo(x + p.r + 3, y + bob - 1);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = "#2a1a38";
-    ctx.fillRect(x - 3, y + bob - p.r - 2, 6, 4);
-  }
-  const ex = Math.cos(p.facing) * 3;
-  const ey = Math.sin(p.facing) * 2;
-  ctx.fillStyle = "#f0e6c8";
-  ctx.beginPath();
-  ctx.arc(x - 3.2 + ex, y + bob - 2 + ey, 2, 0, TAU);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(x + 3.2 + ex, y + bob - 2 + ey, 2, 0, TAU);
-  ctx.fill();
-  ctx.fillStyle = "#1a0a00";
-  ctx.beginPath();
-  ctx.arc(x - 3.2 + ex + Math.cos(p.facing), y + bob - 2 + ey, 1.1, 0, TAU);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(x + 3.2 + ex + Math.cos(p.facing), y + bob - 2 + ey, 1.1, 0, TAU);
-  ctx.fill();
+  ctx.save();
+  ctx.translate(x, y + bob + 1);
+  ctx.scale((p.r / 11) * (Math.cos(p.facing) < 0 ? -1 : 1), p.r / 11);
+  if (p.classId === "rogue") drawRogue(p.moving ? Math.sin(G.t * 14) : 0);
+  else if (p.classId === "warrior") drawWarrior(p.moving ? Math.sin(G.t * 12) : 0);
+  else drawWizard(p.moving ? Math.sin(G.t * 11) : 0);
+  ctx.restore();
   ctx.globalAlpha = 1;
 
   if (p.weapon === "orbit") {
@@ -1292,9 +1701,11 @@ function drawFx() {
 function drawLight() {
   const p = G.player;
   const [x, y] = worldToScreen(p.x, p.y);
-  const warm = ctx.createRadialGradient(x, y, 0, x, y, 170);
-  warm.addColorStop(0, "rgba(255,170,70,0.12)");
-  warm.addColorStop(1, "rgba(255,170,70,0)");
+  const paid = window.__CRAWLER_EDITION === "paid";
+  const warm = ctx.createRadialGradient(x, y, 0, x, y, paid ? 210 : 170);
+  warm.addColorStop(0, paid ? "rgba(255,214,120,0.28)" : "rgba(255,170,70,0.12)");
+  warm.addColorStop(paid ? 0.4 : 1, paid ? "rgba(255,150,40,0.08)" : "rgba(255,170,70,0)");
+  if (paid) warm.addColorStop(1, "rgba(255,170,70,0)");
   ctx.fillStyle = warm;
   ctx.fillRect(0, 0, W, H);
   const g = ctx.createRadialGradient(x, y, 36, x, y, p.light);
@@ -1303,6 +1714,17 @@ function drawLight() {
   g.addColorStop(1, "rgba(0,0,0,0.62)");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
+  if (paid) {
+    const flick = 2.1 + Math.sin(G.t * 9) * 0.45;
+    ctx.fillStyle = "rgba(255,220,140,0.95)";
+    ctx.beginPath();
+    ctx.arc(x, y - 22, flick, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,120,40,0.35)";
+    ctx.beginPath();
+    ctx.arc(x, y - 22, flick + 3, 0, TAU);
+    ctx.fill();
+  }
 }
 
 function drawMinimap() {
@@ -1382,22 +1804,33 @@ function update(dt) {
     if (G.map) render();
     return;
   }
-  G.t += dt;
-  if (!G.flow || G.t - G.flowAt > 0.14) refreshFlow();
-  updatePlayer(dt);
-  fireWeapons(dt);
-  updateEnemies(dt);
-  updateBullets(dt);
-  G.enemies = G.enemies.filter((e) => !e.dead);
-  updateGems(dt);
-  updatePickups();
-  updateFx(dt);
-  updateCamera();
-  updateHud();
-  if (Math.floor(G.t) === 45 && !G.whisper45) {
-    G.whisper45 = true;
-    log("It follows sound.");
-  }
+  if (!playerIntact()) voidRun(true);
+  auth(() => {
+    G.t += dt;
+    if (!G.flow || G.t - G.flowAt > 0.14) refreshFlow();
+    updatePlayer(dt);
+    fireWeapons(dt);
+    updateEnemies(dt);
+    updateBullets(dt);
+    pruneDead(G.enemies);
+    updateGems(dt);
+    updatePickups();
+    updateFx(dt);
+    updateCamera();
+    updateHud();
+    if (Math.floor(G.t) === 45 && !G.whisper45) {
+      G.whisper45 = true;
+      log("It follows sound.");
+    }
+    if (Math.floor(G.t) === Math.floor(70 * D().eliteDelay) && !G.whisperMite) {
+      G.whisperMite = true;
+      log("Something smaller. Closer.");
+    }
+    if (Math.floor(G.t) === Math.floor(150 * D().eliteDelay) && !G.whisperHusk) {
+      G.whisperHusk = true;
+      log("It does not notice the knives.");
+    }
+  });
   render();
 }
 
@@ -1411,6 +1844,10 @@ function loop(now) {
 }
 
 function onKey(e, down) {
+  if (e.target && e.target.closest && e.target.closest("input, textarea")) {
+    if (down && e.code === "Escape") e.target.blur();
+    return;
+  }
   if (down && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) {
     e.preventDefault();
   }
@@ -1426,6 +1863,18 @@ function onKey(e, down) {
 
   if (G.mode === "title" && (e.code === "Enter" || e.code === "Space")) {
     setMode("select");
+    return;
+  }
+  if (G.mode === "title" && e.code === "KeyB") {
+    board.openFrom("title");
+    setMode("board");
+    return;
+  }
+  if (G.mode === "board") {
+    if (e.code === "Escape") setMode(board.cameFrom());
+    if (e.code === "Digit1") board.pickTab("lantern");
+    if (e.code === "Digit2") board.pickTab("candle");
+    if (e.code === "Digit3") board.pickTab("black");
     return;
   }
   if (G.mode === "select") {
@@ -1514,9 +1963,24 @@ window.addEventListener("pointerup", onPointerUp);
 window.addEventListener("pointercancel", onPointerUp);
 window.addEventListener("contextmenu", (e) => e.preventDefault());
 
+const board = bindBoard({
+  getDifficulty: () => G.difficulty || localStorage.getItem(DIFF_KEY) || "candle",
+  className: (id) => (CLASSES[id] ? CLASSES[id].name : id),
+});
+
 document.getElementById("btn-descend").addEventListener("click", () => {
   audio.unlock();
   setMode("select");
+});
+document.getElementById("btn-board").addEventListener("click", () => {
+  audio.unlock();
+  board.openFrom("title");
+  setMode("board");
+});
+document.getElementById("btn-board-close").addEventListener("click", () => setMode(board.cameFrom()));
+document.getElementById("btn-dead-board").addEventListener("click", () => {
+  board.openFrom("dead");
+  setMode("board");
 });
 function pickClass(classId) {
   G.classId = classId;
@@ -1558,6 +2022,50 @@ ui.muteBtn.addEventListener("click", () => {
 
 refreshChrome();
 window.matchMedia("(pointer: coarse)").addEventListener("change", refreshChrome);
+if (window.__CRAWLER_STORE) {
+  document.querySelectorAll("[data-portal]").forEach((el) => el.remove());
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && G.mode === "play") setMode("pause");
+});
+
+function handleBack() {
+  if (G.mode === "levelup") return true;
+  if (G.mode === "play") {
+    setMode("pause");
+    return true;
+  }
+  if (G.mode === "pause") {
+    setMode("title");
+    return true;
+  }
+  if (G.mode === "board") {
+    setMode(board.cameFrom());
+    return true;
+  }
+  if (G.mode === "difficulty") {
+    setMode("select");
+    return true;
+  }
+  if (G.mode === "select" || G.mode === "dead") {
+    setMode("title");
+    return true;
+  }
+  return false;
+}
+
+let backArmed = false;
+function armBack() {
+  if (backArmed) return;
+  history.pushState({ crawler: 1 }, "");
+  backArmed = true;
+}
+window.addEventListener("popstate", () => {
+  backArmed = false;
+  if (handleBack()) armBack();
+});
+armBack();
 resize();
 const boot = location.hash.slice(1);
 if (boot === "select") setMode("select");

@@ -10,9 +10,6 @@
     <title>Crawler — There is a room at the bottom</title>
     <meta name="description" content="A real-time dungeon horde crawler. Move. Survive. Descend." />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect fill='%23140f0c' width='64' height='64'/%3E%3Crect x='26' y='14' width='12' height='22' rx='2' fill='%23c9a35a'/%3E%3Ccircle cx='32' cy='44' r='10' fill='%23e8c36a'/%3E%3C/svg%3E" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="css/style.css" />
   </head>
   <body>
@@ -50,12 +47,15 @@
         <p class="eyebrow">A dungeon crawler</p>
         <h1>Crawler</h1>
         <p class="tagline">There is a room at the bottom.</p>
-        <button id="btn-descend" class="btn" type="button">Descend</button>
+        <div class="row title-actions">
+          <button id="btn-descend" class="btn" type="button">Descend</button>
+          <button id="btn-board" class="btn ghost" type="button">The wall</button>
+        </div>
         <p class="fine" id="title-fine">
           <span class="copy-desk">WASD to move. Your weapon works without you.</span>
           <span class="copy-touch">Drag to move. Your weapon works without you.</span>
         </p>
-        <p class="fine"><a class="portal-link" href="https://tabyen.github.io/game-portal/#dungeon-horde">&larr; back to the portal</a></p>
+        <p class="fine" data-portal><a class="portal-link" href="https://tabyen.github.io/game-portal/#dungeon-horde">&larr; back to the portal</a></p>
       </div>
     </div>
 
@@ -151,7 +151,7 @@
           <button id="btn-resume" class="btn" type="button">Resume</button>
           <button id="btn-mute" class="btn ghost" type="button">Mute</button>
           <button id="btn-title" class="btn ghost" type="button">Abandon</button>
-          <a class="btn ghost" href="https://tabyen.github.io/game-portal/#dungeon-horde">Portal</a>
+          <a class="btn ghost" data-portal href="https://tabyen.github.io/game-portal/#dungeon-horde">Portal</a>
         </div>
       </div>
     </div>
@@ -163,10 +163,43 @@
         <h2>You have died.</h2>
         <p id="dead-stats" class="tagline"></p>
         <p id="dead-best" class="fine"></p>
+        <div class="dead-sign">
+          <label>Your name <input id="dead-name" maxlength="16" autocomplete="nickname" spellcheck="false" /></label>
+          <button id="btn-dead-submit" class="btn" type="button">Sign the wall</button>
+        </div>
+        <p id="dead-place" class="fine"></p>
+        <ol id="dead-board" class="board-list compact"></ol>
         <div class="row">
           <button id="btn-retry" class="btn" type="button">Descend again</button>
+          <button id="btn-dead-board" class="btn ghost" type="button">The wall</button>
           <button id="btn-dead-title" class="btn ghost" type="button">Title</button>
-          <a class="btn ghost" href="https://tabyen.github.io/game-portal/#dungeon-horde">Portal</a>
+          <a class="btn ghost" data-portal href="https://tabyen.github.io/game-portal/#dungeon-horde">Portal</a>
+        </div>
+      </div>
+    </div>
+
+    <div id="board" class="overlay hidden">
+      <div class="veil dark"></div>
+      <div class="panel board-panel">
+        <p class="eyebrow">The walls remember names</p>
+        <h2>Longest lantern</h2>
+        <div class="board-fields">
+          <label>Your name <input id="board-name" maxlength="16" autocomplete="nickname" spellcheck="false" /></label>
+          <div class="room-row">
+            <label>Room <input id="board-room" maxlength="9" placeholder="optional" autocomplete="off" spellcheck="false" /></label>
+            <button id="btn-make-room" class="btn ghost" type="button">Make a room</button>
+          </div>
+        </div>
+        <div class="board-tabs" id="board-tabs">
+          <button type="button" data-board="lantern">Lantern</button>
+          <button type="button" data-board="candle">Candle</button>
+          <button type="button" data-board="black">No Light</button>
+        </div>
+        <ol id="board-list" class="board-list"></ol>
+        <p id="board-status" class="fine"></p>
+        <div class="row">
+          <button id="btn-board-submit" class="btn" type="button">Sign the wall</button>
+          <button id="btn-board-close" class="btn ghost" type="button">Back</button>
         </div>
       </div>
     </div>

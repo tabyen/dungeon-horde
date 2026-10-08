@@ -6,16 +6,33 @@ A real-time dungeon horde. Same bones as the old turn-based crawler — BSP hall
 
 ## Play
 
-Live: [https://tabyen.github.io/dungeon-horde/](https://tabyen.github.io/dungeon-horde/).
+Live: [https://crawler.tabyen.workers.dev/](https://crawler.tabyen.workers.dev/). GitHub Pages is a static copy without the wall: [https://tabyen.github.io/dungeon-horde/](https://tabyen.github.io/dungeon-horde/).
 
-To run locally:
+To play **and** keep score locally:
 
 ```bash
-cd dungeon-horde
+npm install
+npm run dev
+```
+
+Open [http://localhost:8787](http://localhost:8787). **The wall** on the title screen is the board. Type a name. **Make a room** gives a code friends can share (`?room=AB3K7Q`).
+
+Game files only, no board:
+
+```bash
 python3 -m http.server 8765 --bind 0.0.0.0
 ```
 
-Open [http://localhost:8765](http://localhost:8765).
+Then [http://localhost:8765](http://localhost:8765). If the Worker is also running on 8787, the Pages-style server will still talk to it.
+
+First deploy (needs a Cloudflare account):
+
+```bash
+npx wrangler login
+npx wrangler d1 create crawler-scores
+```
+
+Put the printed `database_id` into `wrangler.toml`, then `npm run deploy`. The game and `/api` share one Worker URL. Custom domain later, when you have one.
 
 | | |
 |---|---|
@@ -25,6 +42,7 @@ Open [http://localhost:8765](http://localhost:8765).
 | Esc / Pause | Pause |
 | M | Mute |
 | Enter | Descend / retry |
+| B | The wall (title) |
 
 Phones and tablets: open the same URL, tap Descend, pick a champion, pick how dark, drag anywhere to walk. Attacks still fire themselves. Add to Home Screen if you want it fullscreen.
 

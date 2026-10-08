@@ -1,2 +1,11 @@
-dist
+.git
+.wrangler
 node_modules
+dist
+test
+scripts
+worker
+package.json
+package-lock.json
+README.md
+wrangler.toml

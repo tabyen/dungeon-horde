@@ -268,6 +268,56 @@ const CSP = [
   "frame-ancestors 'none'",
 ].join("; ");
 
+const pageStyle = `body{margin:0;background:#0c0908;color:#e8dcc8;font:18px Palatino,Georgia,serif}main{max-width:40rem;margin:0 auto;padding:32px 20px 64px}a{color:#c9a35a}h1{font-size:32px}`;
+
+const privacyPage = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Crawler — Privacy</title>
+    <style>${pageStyle}</style>
+  </head>
+  <body>
+    <main>
+      <h1>Privacy</h1>
+      <p>Crawler can be played without an account. There are no ads and no analytics tools.</p>
+      <p>The game keeps a name, a room code, a difficulty, and a best run on this device. That stays on the device.</p>
+      <p>If you sign the wall, the game sends your name, class, difficulty, floor, kills, level, and how long the run lasted to the Crawler server. The server also stores the IP address long enough to slow down repeated requests. Names on the wall can be seen by other players in the same room, or on the public wall if you leave the room blank.</p>
+      <p>If you report a name, the game sends that name, the difficulty, the room code, and an optional note. Reports are not shown to other players.</p>
+      <p>The paid store copies do not send payment details to the Crawler server. Apple, Google, and Steam handle the purchase.</p>
+      <p>Questions and name-removal requests go to the <a href="/support">support page</a>.</p>
+    </main>
+  </body>
+</html>
+`;
+
+const supportPage = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Crawler — Support</title>
+    <style>${pageStyle}</style>
+  </head>
+  <body>
+    <main>
+      <h1>Support</h1>
+      <p>To report a name on the wall, open the wall in the game and use “Report this name.”</p>
+      <p>For anything else, open an issue at <a href="https://github.com/tabyen/dungeon-horde/issues">github.com/tabyen/dungeon-horde</a>.</p>
+      <p><a href="/privacy">Privacy</a></p>
+    </main>
+  </body>
+</html>
+`;
+
+function pageResponse(html) {
+  return new Response(html, {
+    status: 200,
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
+}
+
 function withPageHeaders(res) {
   const headers = new Headers(res.headers);
   headers.set("Content-Security-Policy", CSP);
@@ -298,11 +348,11 @@ export default {
         return json(req, { error: "the wall cracked", detail: String(err?.message || err) }, 500);
       }
     }
-    if (url.pathname === "/privacy" || url.pathname === "/support") {
-      if (!env.ASSETS) return new Response("not found", { status: 404 });
-      const file = url.pathname === "/privacy" ? "/privacy.html" : "/support.html";
-      const assetUrl = new URL(file, url);
-      return withPageHeaders(await env.ASSETS.fetch(new Request(assetUrl, req)));
+    if (url.pathname === "/privacy" || url.pathname === "/privacy.html") {
+      return withPageHeaders(pageResponse(privacyPage));
+    }
+    if (url.pathname === "/support" || url.pathname === "/support.html") {
+      return withPageHeaders(pageResponse(supportPage));
     }
     if (!env.ASSETS) return new Response("not found", { status: 404 });
     return withPageHeaders(await env.ASSETS.fetch(req));
